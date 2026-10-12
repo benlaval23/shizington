@@ -67,6 +67,11 @@ class CredentialsStore(context: Context) {
         get() = settings.getString(KEY_QUALITY, "best") ?: "best"
         set(value) = settings.edit().putString(KEY_QUALITY, value).apply()
 
+    /** How far to shift sound against picture, in ms; positive plays the sound later. Set from the player. */
+    var audioDelayMs: Int
+        get() = settings.getInt(KEY_AUDIO_DELAY, 0)
+        set(value) = settings.edit().putInt(KEY_AUDIO_DELAY, value).apply()
+
     private companion object {
         const val KEY_SERVER = "server"
         const val KEY_USER = "username"
@@ -77,5 +82,6 @@ class CredentialsStore(context: Context) {
         const val KEY_SHOW_ADULT = "show_adult"
         const val KEY_ADULT_PIN = "adult_pin"
         const val KEY_QUALITY = "preferred_quality"
+        const val KEY_AUDIO_DELAY = "audio_delay_ms"
     }
 }

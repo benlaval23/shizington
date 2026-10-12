@@ -66,6 +66,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.C
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -156,14 +157,15 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: ()
     // Briefly show channel info after zapping.
     LaunchedEffect(vm.index) { if (vm.isLive && overlay == Overlay.NONE) overlay = Overlay.CONTROLS }
 
-    BackHandler {
+    // One press leaves the player; only the audio/subtitle picker and channel list close first.
+    fun onBack() {
         when {
-            // One press leaves the player; only the audio/subtitle picker and channel list close first.
             trackType != null -> trackType = null
             overlay == Overlay.CHANNELS -> overlay = Overlay.NONE
             else -> onExit()
         }
     }
+    BackHandler { onBack() }
 
     fun show(o: Overlay) {
         overlay = o
@@ -177,6 +179,12 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: ()
                 lastInteraction = System.currentTimeMillis()
                 val code = event.nativeKeyEvent.keyCode
                 val down = event.type == KeyEventType.KeyDown
+                // Compose spends Back on clearing focus from the control buttons before any BackHandler sees it,
+                // which made leaving the player take two presses. Handle it here, on release, instead.
+                if (code == AndroidKeyEvent.KEYCODE_BACK) {
+                    if (event.type == KeyEventType.KeyUp && !event.nativeKeyEvent.isCanceled) onBack()
+                    return@onPreviewKeyEvent true
+                }
                 // Media keys work in every state.
                 when (code) {
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY, AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> {
@@ -454,6 +462,47 @@ private fun ChannelListOverlay(vm: PlayerViewModel, onSelect: (Int) -> Unit) {
     }
 }
 
+/** Left/right shifts the sound against the picture in 50 ms steps; OK puts it back to zero. */
+@Composable
+private fun AudioSyncControl(vm: PlayerViewModel) {
+    val ms = vm.audioDelayMs
+    Surface(
+        onClick = { vm.setAudioDelay(0) },
+        modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
+            val step = when (e.nativeKeyEvent.keyCode) {
+                AndroidKeyEvent.KEYCODE_DPAD_LEFT -> -50
+                AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> 50
+                else -> return@onPreviewKeyEvent false
+            }
+            if (e.type == KeyEventType.KeyDown) vm.nudgeAudio(step)
+            true
+        },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = AppColors.SurfaceHigh,
+            contentColor = AppColors.OnBackground,
+            focusedContainerColor = AppColors.OnBackground,
+            focusedContentColor = Color.Black,
+        ),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(2.dp, AppColors.Accent), shape = RoundedCornerShape(8.dp))),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Sound sync", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(
+                    "◀  " + when {
+                        ms == 0 -> "In sync"
+                        ms > 0 -> "${ms} ms later"
+                        else -> "${-ms} ms earlier"
+                    } + "  ▶",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Text("◀ if the voice comes after the lips  ·  ▶ if it comes before  ·  OK to reset", style = MaterialTheme.typography.bodySmall, color = LocalContentColor.current.copy(alpha = 0.7f))
+        }
+    }
+}
+
 @Composable
 private fun TrackPicker(vm: PlayerViewModel, type: Int, onDismiss: () -> Unit) {
     @Suppress("UNUSED_VARIABLE") val version = vm.tracksVersion // recompose when tracks change
@@ -473,9 +522,13 @@ private fun TrackPicker(vm: PlayerViewModel, type: Int, onDismiss: () -> Unit) {
         ) {
             Text(if (type == C.TRACK_TYPE_AUDIO) "Audio" else "Subtitles", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
+            if (type == C.TRACK_TYPE_AUDIO) {
+                AudioSyncControl(vm)
+                Spacer(Modifier.height(10.dp))
+            }
             if (options.isEmpty()) {
                 Text("No tracks available", color = AppColors.Muted)
-                LaunchedEffect(Unit) { delay(1500); onDismiss() }
+                if (type != C.TRACK_TYPE_AUDIO) LaunchedEffect(Unit) { delay(1500); onDismiss() }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(options) { i, option ->
