@@ -180,5 +180,5 @@ internal fun ComingSoonCard(t: TmdbTitle, onList: Boolean, onClick: () -> Unit, 
 }
 
 private fun comingLabel(iso: String): String = runCatching {
-    java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("d MMM")).uppercase()
+    java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK)).uppercase()
 }.getOrDefault("SOON")

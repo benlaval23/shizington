@@ -131,7 +131,7 @@ fun SettingsScreen(navigator: AppNavigator) {
                 InfoLine("Status", (a.status ?: "Unknown") + if (a.isTrial) " (trial)" else "")
                 InfoLine(
                     "Expires",
-                    a.expiresAt?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) + (a.daysLeft()?.let { d -> "  ($d days left)" } ?: "") } ?: "Never",
+                    a.expiresAt?.let { DateFormat.getDateInstance(DateFormat.MEDIUM, java.util.Locale.UK).format(Date(it)) + (a.daysLeft()?.let { d -> "  ($d days left)" } ?: "") } ?: "Never",
                 )
                 InfoLine("Connections", "${a.activeConnections ?: 0} in use of ${a.maxConnections ?: "?"} allowed")
             } else if (vm.accountError != null) {

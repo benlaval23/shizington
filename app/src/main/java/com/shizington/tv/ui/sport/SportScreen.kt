@@ -282,12 +282,12 @@ private fun dayTime(ms: Long): String {
     val tomorrow = day.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
     today.add(java.util.Calendar.DAY_OF_YEAR, -2)
     val yesterday = day.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
-    val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+    val time = SimpleDateFormat("HH:mm", Locale.UK).format(Date(ms))
     return when {
         sameDay -> "Today $time"
         tomorrow -> "Tomorrow $time"
         yesterday -> "Yesterday $time"
-        else -> SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(ms)) + " $time"
+        else -> SimpleDateFormat("EEE d MMM", Locale.UK).format(Date(ms)) + " $time"
     }
 }
 

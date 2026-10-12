@@ -191,7 +191,7 @@ class RecommendationEngine(
             val days = date?.let { runCatching { java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.parse(it), today) }.getOrNull() }
             item.copy(
                 badge = when (days) { null -> "NEW"; 0L -> "OUT TODAY"; 1L -> "OUT YESTERDAY"; in 2..13 -> "OUT $days DAYS AGO"; else -> "NEW" },
-                reason = "Out on digital in the UK" + (date?.let { " · ${java.time.LocalDate.parse(it).format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))}" } ?: ""),
+                reason = "Out on digital in the UK" + (date?.let { " · ${java.time.LocalDate.parse(it).format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK))}" } ?: ""),
             )
         }
         val top10 = mapTmdb(catalog, trending.await()).take(10).mapIndexed { i, f -> f.copy(rank = i + 1, reason = "#${i + 1} in the UK today") }

@@ -63,6 +63,6 @@ class FocusHero(private val c: AppContainer, private val scope: CoroutineScope) 
     }
 
     private fun formatDate(iso: String): String = runCatching {
-        java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
+        java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.UK))
     }.getOrDefault(iso)
 }
