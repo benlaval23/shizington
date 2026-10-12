@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.detail
 
+import com.shizington.tv.ui.components.SkeletonDetail
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,7 +80,7 @@ class PersonViewModel(private val id: Long, private val c: AppContainer) : ViewM
 fun PersonScreen(id: Long, navigator: AppNavigator) {
     val vm = appViewModel(key = "person_$id") { PersonViewModel(id, it) }
     when (val state = vm.page) {
-        ListState.Loading -> Loader(Modifier.fillMaxSize())
+        ListState.Loading -> SkeletonDetail()
         is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ErrorMessage(state.message, vm::load) }
         is ListState.Ready -> PersonContent(state.value, navigator)
     }

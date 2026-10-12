@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.newhot
 
+import com.shizington.tv.ui.components.SkeletonRows
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Box
@@ -113,10 +114,7 @@ fun NewHotScreen(navigator: AppNavigator) {
     Column(Modifier.fillMaxSize()) {
         HeroBanner(vm.hero.hero, Modifier.fillMaxWidth().height(268.dp), logoHeight = 64.dp)
         when (val state = vm.feed) {
-            ListState.Loading -> Column(Modifier.padding(start = RowStartPadding)) {
-                Loader(Modifier.width(40.dp).height(40.dp))
-                Text("Checking what's new in the UK…", color = AppColors.Muted)
-            }
+            ListState.Loading -> SkeletonRows(rows = 3, message = "Checking what's new in the UK…")
             is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ErrorMessage(state.message, onRetry = { vm.load(true) }) }
             is ListState.Ready -> CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(44.dp)) {
                 val f = state.value

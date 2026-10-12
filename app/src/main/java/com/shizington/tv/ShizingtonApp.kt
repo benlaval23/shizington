@@ -39,7 +39,7 @@ class AppContainer(app: Application) {
         .build()
     val library = LibraryRepository(database)
     val tmdb = com.shizington.tv.data.tmdb.TmdbRepository(httpClient, database.tmdb())
-    val sports = com.shizington.tv.data.sports.SportsRepository(xtream, httpClient)
+    val sports = com.shizington.tv.data.sports.SportsRepository(xtream, httpClient, java.io.File(app.filesDir, "sport_feed.json"))
     val recommendations = com.shizington.tv.data.reco.RecommendationEngine(xtream, tmdb, library)
 
     /** What the player screen should open next; set right before navigating to it. */

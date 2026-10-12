@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.detail
 
+import com.shizington.tv.ui.components.SkeletonDetail
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -144,7 +145,7 @@ class SeriesDetailViewModel(private val id: Long, private val c: AppContainer) :
 fun SeriesDetailScreen(id: Long, navigator: AppNavigator) {
     val vm = appViewModel(key = "series_$id") { SeriesDetailViewModel(id, it) }
     when (val state = vm.info) {
-        ListState.Loading -> Loader(Modifier.fillMaxSize())
+        ListState.Loading -> SkeletonDetail()
         is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ErrorMessage(state.message, vm::load) }
         is ListState.Ready -> SeriesDetailContent(state.value, vm, navigator)
     }

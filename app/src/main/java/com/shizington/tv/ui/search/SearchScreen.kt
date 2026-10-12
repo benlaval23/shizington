@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.search
 
+import com.shizington.tv.ui.components.SkeletonRows
 import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -185,10 +186,10 @@ fun SearchScreen(navigator: AppNavigator) {
         }
         val results = vm.results
         when {
-            vm.loading && results == null -> Column(Modifier.padding(48.dp)) {
-                Loader(Modifier.fillMaxWidth())
-                Text("Searching the catalogue… the first search downloads the full list.", color = AppColors.Muted, style = MaterialTheme.typography.bodyMedium)
-            }
+            vm.loading && results == null -> SkeletonRows(
+                rows = 2, modifier = Modifier.padding(top = 20.dp),
+                message = "Searching the catalogue… the first search after starting the app takes a few seconds.",
+            )
             results == null -> if (query.isNotEmpty()) Text(
                 "Type at least two characters.",
                 color = AppColors.Muted,

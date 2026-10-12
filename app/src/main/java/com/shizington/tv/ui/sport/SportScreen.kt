@@ -56,6 +56,8 @@ import com.shizington.tv.ui.components.ErrorMessage
 import com.shizington.tv.ui.components.Loader
 import com.shizington.tv.ui.components.RowSection
 import com.shizington.tv.ui.components.RowStartPadding
+import com.shizington.tv.ui.components.SkeletonRow
+import com.shizington.tv.ui.components.SkeletonScope
 import com.shizington.tv.ui.components.SportCard
 import com.shizington.tv.ui.components.appViewModel
 import com.shizington.tv.ui.components.rememberPivotSpec
@@ -76,6 +78,8 @@ class SportViewModel(private val c: AppContainer) : ViewModel() {
         private set
 
     init {
+        // Show each stage of the build as it lands (and a saved copy from last time straight away).
+        viewModelScope.launch { c.sports.live.collect { f -> if (f != null) feed = ListState.Ready(f) } }
         load()
         viewModelScope.launch {
             while (isActive) {
@@ -90,10 +94,10 @@ class SportViewModel(private val c: AppContainer) : ViewModel() {
     fun load(force: Boolean = false) {
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
-            feed = try {
-                ListState.Ready(c.sports.feed(force))
+            try {
+                c.sports.feed(force)
             } catch (e: Exception) {
-                if (feed is ListState.Ready) feed else ListState.Failed(e.message ?: "Couldn't load sport")
+                if (feed !is ListState.Ready) feed = ListState.Failed(e.message ?: "Couldn't load sport")
             }
         }
     }
@@ -127,9 +131,11 @@ fun SportScreen(navigator: AppNavigator) {
     val vm = appViewModel(key = "sport") { SportViewModel(it) }
     LaunchedEffect(Unit) { vm.load() }
     when (val state = vm.feed) {
-        ListState.Loading -> Column(Modifier.fillMaxSize().padding(start = RowStartPadding, top = TopBarHeight + 40.dp)) {
-            Loader(Modifier.size(48.dp))
-            Text("Checking fixtures and the sports channels…", color = AppColors.Muted)
+        ListState.Loading -> SkeletonScope {
+            Column(Modifier.fillMaxSize().padding(top = TopBarHeight + 12.dp)) {
+                SkeletonRow("Your teams", cardWidth = 520.dp, cardHeight = 220.dp, count = 3, caption = false)
+                SkeletonRow("On now", cardWidth = 300.dp, cardHeight = 150.dp, count = 6, caption = false)
+            }
         }
         is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ErrorMessage(state.message, onRetry = { vm.load(true) }) }
         is ListState.Ready -> SportContent(state.value, vm, navigator)
@@ -163,10 +169,21 @@ private fun SportContent(f: SportsFeed, vm: SportViewModel, navigator: AppNaviga
                     }
                 }
             }
+            if (!f.listingsLoaded) item(key = "guide_loading") {
+                SkeletonScope {
+                    Column {
+                        SkeletonRow("On now", cardWidth = 300.dp, cardHeight = 150.dp, count = 6, caption = false)
+                        SkeletonRow("Next 36 hours", cardWidth = 300.dp, cardHeight = 150.dp, count = 6, caption = false)
+                    }
+                }
+            }
             if (f.onNow.isNotEmpty()) item(key = "now") { ListingRow("On now", f.onNow.take(20), vm, navigator) }
             if (f.upcoming.isNotEmpty()) item(key = "next") { ListingRow("Next 36 hours", f.upcoming.filter { it.isEvent }.take(25), vm, navigator) }
             items(f.byTopic.entries.filter { it.key !in SportTopic.teams }.toList(), key = { it.key.name }) { (topic, list) ->
                 ListingRow(topic.label, list.take(20), vm, navigator)
+            }
+            if (f.listingsLoaded && !f.missedLoaded && f.missed.isEmpty()) item(key = "missed_loading") {
+                SkeletonScope { SkeletonRow("Missed it? Catch up", cardWidth = 300.dp, cardHeight = 150.dp, count = 6, caption = false) }
             }
             if (f.missed.isNotEmpty()) item(key = "missed") {
                 RowSection("Missed it? Catch up") {

@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.detail
 
+import com.shizington.tv.ui.components.SkeletonDetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +103,7 @@ class MovieDetailViewModel(private val id: Long, private val c: AppContainer) : 
 fun MovieDetailScreen(id: Long, navigator: AppNavigator) {
     val vm = appViewModel(key = "movie_$id") { MovieDetailViewModel(id, it) }
     when (val state = vm.info) {
-        ListState.Loading -> Loader(Modifier.fillMaxSize())
+        ListState.Loading -> SkeletonDetail()
         is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ErrorMessage(state.message, vm::load) }
         is ListState.Ready -> MovieDetailContent(state.value, vm, navigator)
     }

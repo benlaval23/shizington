@@ -61,6 +61,20 @@ fun HeroBanner(
         }
         Box(Modifier.fillMaxSize().background(StartScrim))
         Box(Modifier.fillMaxSize().background(BottomScrim))
+        if (hero == null) {
+            // Title and blurb shapes until the first title arrives, so the banner isn't an empty band.
+            SkeletonScope {
+                Column(
+                    Modifier.align(Alignment.BottomStart).padding(start = RowStartPadding, bottom = contentBottomPadding + 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    SkeletonBlock(300.dp, 44.dp, corner = 8.dp)
+                    SkeletonBlock(200.dp, 14.dp, corner = 4.dp)
+                    SkeletonBlock(420.dp, 12.dp, corner = 4.dp)
+                    SkeletonBlock(360.dp, 12.dp, corner = 4.dp)
+                }
+            }
+        }
         if (hero != null) {
             Column(
                 Modifier

@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.home
 
+import com.shizington.tv.ui.components.SkeletonRows
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -115,6 +116,10 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
     init {
         load()
+        // Start Sport now rather than after the home feed: it is mostly small guide requests, and this way the
+        // Sport tab (and the sport row here) are usually ready by the time anyone looks.
+        viewModelScope.launch { c.sports.live.collect { f -> if (f != null && f.listingsLoaded) sports = f } }
+        viewModelScope.launch { delay(1_500); runCatching { c.sports.feed() } }
         viewModelScope.launch {
             while (isActive) {
                 delay(30_000)
@@ -133,9 +138,6 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             } catch (e: Exception) {
                 if (feed is ListState.Ready) feed else ListState.Failed(e.message ?: "Couldn't build your home screen")
             }
-            // Sport scans ~100 guide entries, so it runs after the main feed is on screen.
-            delay(1_000)
-            sports = runCatching { c.sports.feed() }.getOrNull() ?: sports
             // Home has already downloaded the catalogue, so building search indexes now makes the first search instant.
             c.xtream.prewarmSearch()
         }
@@ -304,10 +306,7 @@ fun HomeScreen(navigator: AppNavigator) {
                         Text(hello, style = MaterialTheme.typography.headlineSmall, color = Color.White)
                         Text(mood, style = MaterialTheme.typography.bodyMedium, color = AppColors.Muted)
                         if (vm.feed is ListState.Loading) {
-                            Row(Modifier.padding(top = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Loader(Modifier.size(28.dp))
-                                Text("Lining up tonight's picks…", style = MaterialTheme.typography.titleMedium, color = AppColors.OnBackground)
-                            }
+                            Text("Lining up tonight's picks for you both…", style = MaterialTheme.typography.titleMedium, color = AppColors.OnBackground, modifier = Modifier.padding(top = 40.dp))
                         }
                     }
                     if (current != null) {
@@ -379,10 +378,7 @@ private fun BillboardItem.toHero(): HeroData {
 private fun HomeSkeleton(continueWatching: List<ProgressEntity>, vm: HomeViewModel, navigator: AppNavigator) {
     Column(Modifier.fillMaxSize()) {
         if (continueWatching.isNotEmpty()) ContinueRow(continueWatching, vm, navigator)
-        Column(Modifier.padding(start = RowStartPadding, top = 8.dp)) {
-            Loader(Modifier.size(40.dp))
-            Text("Putting together picks for you both…", color = AppColors.Muted, style = MaterialTheme.typography.bodyMedium)
-        }
+        SkeletonRows(rows = 3)
     }
 }
 
