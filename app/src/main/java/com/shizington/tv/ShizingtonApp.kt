@@ -41,6 +41,9 @@ class AppContainer(app: Application) {
     @Volatile
     var pendingPlayback: PlaybackRequest? = null
 
+    /** True while the player is showing; the app's backgrounds go transparent so the video layer shows. */
+    val playerVisible = androidx.compose.runtime.mutableStateOf(false)
+
     /** Last live channel the player showed, so the channel list can refocus it. */
     @Volatile
     var lastPlayedLiveId: Long? = null
@@ -57,7 +60,13 @@ class ShizingtonApp : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient { container.httpClient }
-        .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.2).build() }
+        // Fire TV sticks have ~1 GB of RAM shared with Fire OS; a modest cache avoids the low-memory killer.
+        .memoryCache {
+            val cap = 32L * 1024 * 1024
+            MemoryCache.Builder(this).maxSizePercent(0.15).build().let {
+                if (it.maxSize > cap) MemoryCache.Builder(this).maxSizeBytes(cap.toInt()).build() else it
+            }
+        }
         .diskCache {
             DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(250L * 1024 * 1024).build()
         }

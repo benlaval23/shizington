@@ -41,7 +41,7 @@ fun HeroBanner(hero: HeroData?, modifier: Modifier = Modifier) {
             .fillMaxWidth(0.72f)
             .align(Alignment.TopEnd)) { image ->
             if (image != null) {
-                AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize())
+                AsyncImage(model = backdropRequest(image), contentDescription = null, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize())
             }
         }
         Box(Modifier.fillMaxSize().background(StartScrim))

@@ -146,6 +146,9 @@ class LoginViewModel(private val c: AppContainer, initialMessage: String?) : Vie
                 onSuccess()
             } catch (e: AuthException) {
                 error = e.message
+            } catch (e: retrofit2.HttpException) {
+                // Xtream panels reject unknown accounts with 401/403 or even 404 rather than auth=0.
+                error = if (e.code() in setOf(401, 403, 404)) "Invalid username or password" else "Sign in failed (server error ${e.code()})"
             } catch (e: IOException) {
                 error = "Couldn't reach the server (${e.message ?: e.javaClass.simpleName})"
             } catch (e: Exception) {
