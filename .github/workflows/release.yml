@@ -1,0 +1,76 @@
+name: Build signed release APK
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          KS="$RUNNER_TEMP/release.jks"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$KS"
+            {
+              echo "SIGNING_STORE_FILE=$KS"
+              echo "SIGNING_STORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "SIGNING_KEY_ALIAS=$KEY_ALIAS"
+              echo "SIGNING_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+            } >> "$GITHUB_ENV"
+          else
+            # No secrets configured: sign with a throwaway key so the build still yields an installable APK.
+            # Updates won't install over a previous build signed with a different throwaway key.
+            echo "::warning::KEYSTORE_BASE64 secret not set - signing with a temporary key."
+            keytool -genkeypair -v -keystore "$KS" -alias ci -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass cipassword -keypass cipassword -dname "CN=Shizington CI"
+            {
+              echo "SIGNING_STORE_FILE=$KS"
+              echo "SIGNING_STORE_PASSWORD=cipassword"
+              echo "SIGNING_KEY_ALIAS=ci"
+              echo "SIGNING_KEY_PASSWORD=cipassword"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release APK
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('1.0.{0}', github.run_number) }}
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Verify signature
+        run: $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Rename APK
+        run: mv app/build/outputs/apk/release/app-release.apk "shizington-${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shizington-release-apk
+          path: shizington-*.apk
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: shizington-*.apk
