@@ -115,6 +115,7 @@ class XtreamRepository(
         adultCategoryIds.clear()
         streamsByCategory.clear()
         allStreams.clear()
+        visibleStreams.clear()
         catalogueLoads.clear()
         searchIndexes.clear()
         movieInfos.clear()
@@ -216,9 +217,19 @@ class XtreamRepository(
         }
     }
 
-    suspend fun allStreams(type: ContentType): List<Stream> = hideAdult(type, allStreams.get(type) {
-        request(streamsAction(type)) { parseStreams(type, it) }
-    })
+    /** The filtered list per type, reused while the raw list and the adult setting are unchanged (see [allStreams]). */
+    private val visibleStreams = ConcurrentHashMap<ContentType, Triple<List<Stream>, Boolean, List<Stream>>>()
+
+    /**
+     * Everything of one type (cached for the session). The same list instance comes back each time, so callers
+     * can key their own caches on it, and a 16k-title list isn't re-filtered and copied on every call.
+     */
+    suspend fun allStreams(type: ContentType): List<Stream> {
+        val raw = allStreams.get(type) { request(streamsAction(type)) { parseStreams(type, it) } }
+        val adult = store.showAdult
+        visibleStreams[type]?.let { (r, a, list) -> if (r === raw && a == adult) return list }
+        return hideAdult(type, raw).also { visibleStreams[type] = Triple(raw, adult, it) }
+    }
 
     private fun streamsAction(type: ContentType) = when (type) {
         ContentType.LIVE -> "get_live_streams"
