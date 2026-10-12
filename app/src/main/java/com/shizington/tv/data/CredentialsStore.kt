@@ -30,12 +30,13 @@ class CredentialsStore(context: Context) {
         val server = prefs.getString(KEY_SERVER, null) ?: return null
         val user = prefs.getString(KEY_USER, null) ?: return null
         val pass = prefs.getString(KEY_PASS, null) ?: return null
-        return Credentials(server, user, pass)
+        val backups = prefs.getString(KEY_BACKUPS, null).orEmpty().split('\n').filter { it.isNotBlank() }
+        return Credentials(server, user, pass, backups)
     }
 
     fun save(c: Credentials) {
         prefs.edit().putString(KEY_SERVER, c.server).putString(KEY_USER, c.username)
-            .putString(KEY_PASS, c.password).apply()
+            .putString(KEY_PASS, c.password).putString(KEY_BACKUPS, c.backupServers.joinToString("\n")).apply()
         settings.edit().putString(KEY_LAST_ACCOUNT, c.accountKey).apply()
     }
 
@@ -54,6 +55,7 @@ class CredentialsStore(context: Context) {
         const val KEY_SERVER = "server"
         const val KEY_USER = "username"
         const val KEY_PASS = "password"
+        const val KEY_BACKUPS = "backup_servers"
         const val KEY_LAST_ACCOUNT = "last_account"
         const val KEY_LIVE_FORMAT = "live_format"
     }

@@ -2,7 +2,15 @@ package com.shizington.tv.data.model
 
 enum class ContentType { LIVE, MOVIE, SERIES, EPISODE }
 
-data class Credentials(val server: String, val username: String, val password: String) {
+data class Credentials(
+    val server: String,
+    val username: String,
+    val password: String,
+    /** Alternate hosts for the same account, tried in order when [server] is unreachable. */
+    val backupServers: List<String> = emptyList(),
+) {
+    val servers: List<String> get() = (listOf(server) + backupServers).distinct()
+
     /** Identifies the account so local history is not mixed across providers. */
     val accountKey: String get() = "$server|$username"
 }

@@ -30,7 +30,9 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
+import retrofit2.HttpException
 import retrofit2.Retrofit
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
 class AuthException(message: String) : Exception(message)
@@ -62,8 +64,16 @@ class XtreamRepository(
     var credentials: Credentials? = null
         private set
 
+    /** One client per server (primary first, then backups). */
     @Volatile
-    private var api: XtreamApi? = null
+    private var apis: List<Pair<String, XtreamApi>> = emptyList()
+
+    /** Index of the server that last answered; requests start there. */
+    @Volatile
+    private var activeIndex = 0
+
+    /** The server currently in use, which stream URLs are built from too. */
+    val activeServer: String? get() = apis.getOrNull(activeIndex)?.first ?: credentials?.server
 
     private val categories = AsyncCache<ContentType, List<Category>>()
     private val streamsByCategory = AsyncCache<String, List<Stream>>()
@@ -75,11 +85,14 @@ class XtreamRepository(
 
     fun setCredentials(c: Credentials) {
         credentials = c
-        api = Retrofit.Builder()
-            .baseUrl(c.server.trimEnd('/') + "/")
-            .client(httpClient)
-            .build()
-            .create(XtreamApi::class.java)
+        apis = c.servers.map { server ->
+            server to Retrofit.Builder()
+                .baseUrl(server.trimEnd('/') + "/")
+                .client(httpClient)
+                .build()
+                .create(XtreamApi::class.java)
+        }
+        activeIndex = 0
         clearCache()
     }
 
@@ -95,14 +108,27 @@ class XtreamRepository(
     private suspend fun <T> request(action: String?, extra: Map<String, String> = emptyMap(), parse: (ResponseBody) -> T): T =
         withContext(Dispatchers.IO) {
             val c = credentials ?: throw AuthException("Not signed in")
-            val api = api ?: throw AuthException("Not signed in")
+            val clients = apis.ifEmpty { throw AuthException("Not signed in") }
             val params = buildMap {
                 put("username", c.username)
                 put("password", c.password)
                 if (action != null) put("action", action)
                 putAll(extra)
             }
-            api.call(params).use(parse)
+            // Start with the server that worked last; on network or HTTP errors fall through to the next one.
+            val start = activeIndex
+            var lastError: Exception? = null
+            for (offset in clients.indices) {
+                val i = (start + offset) % clients.size
+                try {
+                    return@withContext clients[i].second.call(params).use(parse).also { activeIndex = i }
+                } catch (e: IOException) {
+                    lastError = e
+                } catch (e: HttpException) {
+                    lastError = e
+                }
+            }
+            throw lastError!!
         }
 
     private suspend fun requestJson(action: String?, extra: Map<String, String> = emptyMap()): JsonElement =
@@ -340,7 +366,7 @@ class XtreamRepository(
 
     fun streamUrl(p: Playable): String {
         val c = credentials ?: throw AuthException("Not signed in")
-        val base = c.server.trimEnd('/')
+        val base = (activeServer ?: c.server).trimEnd('/')
         val user = Uri.encode(c.username)
         val pass = Uri.encode(c.password)
         return when (p.type) {

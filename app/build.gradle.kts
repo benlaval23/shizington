@@ -15,6 +15,14 @@ val keystoreProps = Properties().apply {
 fun signingValue(env: String, prop: String): String? =
     System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(prop)
 
+// Developer convenience only: debug builds prefill the server fields from local.properties (gitignored).
+// Credentials are never read into the build; users always sign in on the login screen.
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun quoted(value: String?) = "\"" + (value ?: "").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 val releaseStoreFile = signingValue("SIGNING_STORE_FILE", "storeFile")
 val hasReleaseSigning = releaseStoreFile != null && file(releaseStoreFile).exists()
 
@@ -47,9 +55,13 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
+            buildConfigField("String", "DEFAULT_SERVER", "\"\"")
+            buildConfigField("String", "DEFAULT_BACKUPS", "\"\"")
         }
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "DEFAULT_SERVER", quoted(localProps.getProperty("xtream.server")))
+            buildConfigField("String", "DEFAULT_BACKUPS", quoted(localProps.getProperty("xtream.backups")))
         }
     }
 
@@ -106,4 +118,5 @@ dependencies {
 
     implementation(libs.security.crypto)
     implementation(libs.coroutines.android)
+
 }

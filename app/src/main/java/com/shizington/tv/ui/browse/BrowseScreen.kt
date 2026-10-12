@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -229,26 +230,32 @@ fun BrowseScreen(mode: BrowseMode, navigator: AppNavigator) {
             }
             is ListState.Ready -> CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(34.dp)) {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-                    if (continueWatching.isNotEmpty()) {
-                        item(key = "continue") {
-                            ContinueWatchingRow(continueWatching, vm.restoreKey, vm::focusRestored, vm::onProgressFocused) { p ->
-                                vm.rememberFocus()
-                                navigator.play(PlaybackRequest(listOf(p.toPlayable()), 0, p.positionMs))
+                    // These slots always exist (1dp when empty, so the list anchors on them) so that local data
+                    // arriving after the catalogue grows in place instead of landing above the viewport.
+                    item(key = "continue") {
+                        Box(Modifier.heightIn(min = 1.dp)) {
+                            if (continueWatching.isNotEmpty()) {
+                                ContinueWatchingRow(continueWatching, vm.restoreKey, vm::focusRestored, vm::onProgressFocused) { p ->
+                                    vm.rememberFocus()
+                                    navigator.play(PlaybackRequest(listOf(p.toPlayable()), 0, p.positionMs))
+                                }
                             }
                         }
                     }
-                    if (favourites.isNotEmpty()) {
-                        item(key = "favourites") {
-                            StreamRow(
-                                rowKey = "favourites",
-                                title = "My favourites",
-                                content = RowContent.Ready(favourites),
-                                onLoad = {},
-                                onFocused = { vm.onFocused("favourites", it) },
-                                onClick = { open("favourites", it) },
-                                restoreKey = vm.restoreKey,
-                                onRestored = vm::focusRestored,
-                            )
+                    item(key = "favourites") {
+                        Box(Modifier.heightIn(min = 1.dp)) {
+                            if (favourites.isNotEmpty()) {
+                                StreamRow(
+                                    rowKey = "favourites",
+                                    title = "My favourites",
+                                    content = RowContent.Ready(favourites),
+                                    onLoad = {},
+                                    onFocused = { vm.onFocused("favourites", it) },
+                                    onClick = { open("favourites", it) },
+                                    restoreKey = vm.restoreKey,
+                                    onRestored = vm::focusRestored,
+                                )
+                            }
                         }
                     }
                     items(rows.value, key = { it.key }) { spec ->

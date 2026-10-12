@@ -35,6 +35,7 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.shizington.tv.AppContainer
+import com.shizington.tv.BuildConfig
 import com.shizington.tv.data.AuthException
 import com.shizington.tv.data.XtreamRepository
 import com.shizington.tv.data.model.Credentials
@@ -106,7 +107,8 @@ fun Logo(sizeSp: Int) {
 }
 
 class LoginViewModel(private val c: AppContainer, initialMessage: String?) : ViewModel() {
-    var server by mutableStateOf("")
+    var server by mutableStateOf(BuildConfig.DEFAULT_SERVER)
+    var backups by mutableStateOf(BuildConfig.DEFAULT_BACKUPS)
     var username by mutableStateOf("")
     var password by mutableStateOf("")
     var loading by mutableStateOf(false)
@@ -117,6 +119,7 @@ class LoginViewModel(private val c: AppContainer, initialMessage: String?) : Vie
     init {
         c.credentialsStore.load()?.let {
             server = it.server
+            backups = it.backupServers.joinToString(", ")
             username = it.username
             password = it.password
         }
@@ -128,7 +131,8 @@ class LoginViewModel(private val c: AppContainer, initialMessage: String?) : Vie
             error = "Please fill in server, username and password"
             return
         }
-        val creds = Credentials(XtreamRepository.normalizeServer(server), username.trim(), password)
+        val backupList = backups.split(',', ' ', '\n').filter { it.isNotBlank() }.map(XtreamRepository::normalizeServer)
+        val creds = Credentials(XtreamRepository.normalizeServer(server), username.trim(), password, backupList)
         loading = true
         error = null
         viewModelScope.launch {
@@ -168,11 +172,18 @@ fun LoginScreen(navigator: AppNavigator, message: String?) {
                 Text("Sign in with your Xtream Codes account.", style = MaterialTheme.typography.bodyLarge, color = AppColors.Muted)
                 Spacer(Modifier.height(8.dp))
                 Text("Server example: http://provider.com:8080", style = MaterialTheme.typography.bodySmall, color = AppColors.Muted)
+                Text("Backup servers are used automatically if the main one is down.", style = MaterialTheme.typography.bodySmall, color = AppColors.Muted)
             }
             Column(Modifier.width(400.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 TvTextField(
                     vm.server, { vm.server = it }, "Server URL",
                     modifier = Modifier.fillMaxWidth().focusRequester(firstField),
+                    keyboardType = KeyboardType.Uri,
+                    onImeAction = { focusManager.moveFocus(FocusDirection.Down) },
+                )
+                TvTextField(
+                    vm.backups, { vm.backups = it }, "Backup servers (optional, comma separated)",
+                    modifier = Modifier.fillMaxWidth(),
                     keyboardType = KeyboardType.Uri,
                     onImeAction = { focusManager.moveFocus(FocusDirection.Down) },
                 )

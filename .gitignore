@@ -11,3 +11,6 @@
 *.jks
 *.keystore
 keystore.properties
+
+# Real API dumps from tools/xtream-probe.sh
+/api-samples/
