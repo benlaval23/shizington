@@ -130,7 +130,11 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
-            .apply { playWhenReady = true }
+            .apply {
+                playWhenReady = true
+                // Subtitles start off (providers often flag a forced/default text track); turn on from the Subtitles button.
+                trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            }
     }
 
     // ---- Viewing signals (what was watched and for how long), recorded when an item ends or is switched ----

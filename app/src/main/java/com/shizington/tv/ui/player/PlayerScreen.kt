@@ -158,8 +158,9 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: ()
 
     BackHandler {
         when {
+            // One press leaves the player; only the audio/subtitle picker and channel list close first.
             trackType != null -> trackType = null
-            overlay != Overlay.NONE -> overlay = Overlay.NONE
+            overlay == Overlay.CHANNELS -> overlay = Overlay.NONE
             else -> onExit()
         }
     }
