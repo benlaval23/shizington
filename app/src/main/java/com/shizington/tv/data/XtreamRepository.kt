@@ -22,7 +22,12 @@ import com.shizington.tv.data.model.Playable
 import com.shizington.tv.data.model.Season
 import com.shizington.tv.data.model.SeriesInfo
 import com.shizington.tv.data.model.Stream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -110,6 +115,8 @@ class XtreamRepository(
         adultCategoryIds.clear()
         streamsByCategory.clear()
         allStreams.clear()
+        catalogueLoads.clear()
+        searchIndexes.clear()
         movieInfos.clear()
         seriesInfos.clear()
         epgCache.clear()
@@ -282,12 +289,31 @@ class XtreamRepository(
         (m["year"].nullIfBlank() ?: m["releaseDate"].nullIfBlank() ?: m["release_date"].nullIfBlank())
             ?.take(4)?.takeIf { it.all(Char::isDigit) }
 
-    private val searchIndexes = java.util.concurrent.ConcurrentHashMap<ContentType, com.shizington.tv.data.search.SearchIndex>()
+    /**
+     * One build per catalogue, outside the caller's coroutine. Search restarts on every keystroke; if the build
+     * lived in the search coroutine, each letter would throw away a half-built index, and on a Fire TV Stick
+     * (where building takes several seconds) search would never finish while someone was typing.
+     */
+    private val indexScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val searchIndexes = ConcurrentHashMap<ContentType, Deferred<com.shizington.tv.data.search.SearchIndex>>()
+    private val catalogueLoads = ConcurrentHashMap<ContentType, Deferred<List<Stream>>>()
 
     private suspend fun searchIndex(type: ContentType): com.shizington.tv.data.search.SearchIndex {
-        val all = allStreams(type)
-        searchIndexes[type]?.takeIf { it.source.size == all.size && it.source.firstOrNull()?.id == all.firstOrNull()?.id }?.let { return it }
-        return withContext(Dispatchers.Default) { com.shizington.tv.data.search.SearchIndex(all) }.also { searchIndexes[type] = it }
+        // The catalogue download is shared and survives cancellation for the same reason.
+        val all = catalogueLoads.compute(type) { _, old ->
+            if (old != null && !(old.isCompleted && old.getCompletionExceptionOrNull() != null)) old
+            else indexScope.async { allStreams(type) }
+        }!!.await()
+        return searchIndexes.compute(type) { _, old ->
+            val stale = old == null || (old.isCompleted && (old.getCompletionExceptionOrNull() != null ||
+                old.getCompleted().source.let { it.size != all.size || it.firstOrNull()?.id != all.firstOrNull()?.id }))
+            if (stale) indexScope.async { com.shizington.tv.data.search.SearchIndex(all) } else old
+        }!!.await()
+    }
+
+    /** Builds the search indexes in the background so the first search is quick. */
+    fun prewarmSearch() {
+        indexScope.launch { for (type in listOf(ContentType.MOVIE, ContentType.SERIES, ContentType.LIVE)) runCatching { searchIndex(type) } }
     }
 
     suspend fun search(query: String, type: ContentType, limit: Int = 60): List<Stream> {

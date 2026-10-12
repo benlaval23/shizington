@@ -136,6 +136,8 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             // Sport scans ~100 guide entries, so it runs after the main feed is on screen.
             delay(1_000)
             sports = runCatching { c.sports.feed() }.getOrNull() ?: sports
+            // Home has already downloaded the catalogue, so building search indexes now makes the first search instant.
+            c.xtream.prewarmSearch()
         }
     }
 
