@@ -60,6 +60,8 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Scale
 import com.shizington.tv.AppContainer
 import com.shizington.tv.ShizingtonApp
 import com.shizington.tv.ui.theme.AppColors
@@ -108,6 +110,31 @@ fun ErrorMessage(message: String, onRetry: (() -> Unit)?, modifier: Modifier = M
 fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, height: Dp = 3.dp, track: Color = Color.White.copy(alpha = 0.25f)) {
     Box(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height)).background(track)) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(AppColors.Accent))
+    }
+}
+
+private val tmdbSize = Regex("""(image\.tmdb\.org/t/p/)[^/]+/""")
+
+/**
+ * Providers link TMDB artwork at 1280px or larger; posters on screen are ~220px wide. Asking TMDB for a
+ * matching size ("w342", "w500", …) cuts download and decode cost by an order of magnitude.
+ */
+fun tmdbSized(url: String?, size: String): String? = url?.replace(tmdbSize, "$1$size/")
+
+/**
+ * Request for large background art (hero banner, detail backdrop). Decoding is capped at 1280x720 and
+ * *fits* inside it, so a 1280x1920 poster used as a fallback can't decode at ~10 MB; on a 1 GB Fire TV
+ * a handful of those was enough to get the app killed.
+ */
+@Composable
+fun backdropRequest(url: String): ImageRequest {
+    val context = LocalContext.current
+    return remember(url) {
+        ImageRequest.Builder(context)
+            .data(tmdbSized(url, "w1280"))
+            .size(1280, 720)
+            .scale(Scale.FIT)
+            .build()
     }
 }
 

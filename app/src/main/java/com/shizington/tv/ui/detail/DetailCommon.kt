@@ -29,6 +29,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.shizington.tv.ui.components.BottomScrim
 import com.shizington.tv.ui.components.StartScrim
+import com.shizington.tv.ui.components.backdropRequest
 import com.shizington.tv.ui.theme.AppColors
 
 @Composable
@@ -36,7 +37,7 @@ fun Backdrop(image: String?) {
     Box(Modifier.fillMaxSize()) {
         if (image != null) {
             AsyncImage(
-                model = image,
+                model = backdropRequest(image),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.TopCenter,

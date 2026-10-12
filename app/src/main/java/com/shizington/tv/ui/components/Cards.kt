@@ -84,7 +84,7 @@ fun PosterCard(
             border = focusBorder(),
             colors = cardColors(),
         ) {
-            RemoteImage(stream.icon, stream.name, Modifier.fillMaxSize())
+            RemoteImage(tmdbSized(stream.icon, "w342"), stream.name, Modifier.fillMaxSize())
         }
         CardCaption(stream.name, focused)
     }
@@ -160,7 +160,7 @@ fun ProgressCard(
             colors = cardColors(),
         ) {
             Box(Modifier.fillMaxSize()) {
-                RemoteImage(image, title, Modifier.fillMaxSize())
+                RemoteImage(tmdbSized(image, "w500"), title, Modifier.fillMaxSize())
                 if (badge != null) {
                     Text(
                         badge,

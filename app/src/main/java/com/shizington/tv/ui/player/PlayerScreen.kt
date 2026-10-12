@@ -2,7 +2,13 @@
 
 package com.shizington.tv.ui.player
 
+import android.app.Activity
 import android.app.Application
+import android.graphics.PixelFormat
+import android.graphics.drawable.ColorDrawable
+import androidx.compose.ui.graphics.toArgb
+import android.view.View
+import com.shizington.tv.LocalVideoView
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -55,12 +61,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.C
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -115,6 +118,22 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: ()
     val rootFocus = remember { FocusRequester() }
     val seekFocus = remember { FocusRequester() }
 
+    // The video plays on a hardware layer behind the window. On older Fire OS the window stays opaque,
+    // so the hole punched for the video comes out black; a translucent window lets it show through.
+    val activity = LocalContext.current as? Activity
+    val container = com.shizington.tv.ui.components.appContainer()
+    DisposableEffect(activity) {
+        val window = activity?.window
+        window?.setFormat(PixelFormat.TRANSLUCENT)
+        window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        container.playerVisible.value = true
+        onDispose {
+            container.playerVisible.value = false
+            window?.setBackgroundDrawable(ColorDrawable(AppColors.Background.toArgb()))
+            window?.setFormat(PixelFormat.OPAQUE)
+        }
+    }
+
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -153,7 +172,6 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: ()
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
             .onPreviewKeyEvent { event ->
                 lastInteraction = System.currentTimeMillis()
                 val code = event.nativeKeyEvent.keyCode
@@ -205,20 +223,16 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: ()
             .focusRequester(rootFocus)
             .focusable(),
     ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    isFocusable = false
-                    keepScreenOn = true
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    player = vm.player
-                }
-            },
-            onRelease = { it.player = null },
-            modifier = Modifier.fillMaxSize(),
-        )
+        // Attach the player to the activity's video view (underneath this UI) for as long as this screen is up.
+        val videoView = LocalVideoView.current
+        DisposableEffect(videoView, vm.player) {
+            videoView?.player = vm.player
+            videoView?.visibility = View.VISIBLE
+            onDispose {
+                videoView?.player = null
+                videoView?.visibility = View.GONE
+            }
+        }
 
         if (vm.isBuffering && vm.error == null) Loader(Modifier.align(Alignment.Center), size = 56.dp)
 
