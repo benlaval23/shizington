@@ -88,7 +88,8 @@ fun FavouritesScreen(navigator: AppNavigator) {
         Triple("fav_series", "Series", list.filter { it.type == ContentType.SERIES }),
     )
     CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(34.dp)) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = TopBarHeight + 16.dp, bottom = 48.dp)) {
+        // Offset below the top bar with padding, not contentPadding, so D-pad down from the tabs reaches the rows.
+        LazyColumn(Modifier.fillMaxSize().padding(top = TopBarHeight), contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)) {
             if (watchlist.isNotEmpty()) item(key = "watchlist") {
                 RowSection("Waiting for release  ·  OK to remove") {
                     items(watchlist, key = { it.key }) { w ->

@@ -139,7 +139,8 @@ fun SportScreen(navigator: AppNavigator) {
 @Composable
 private fun SportContent(f: SportsFeed, vm: SportViewModel, navigator: AppNavigator) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(44.dp)) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = TopBarHeight + 12.dp, bottom = 48.dp)) {
+        // Offset the list itself below the top bar: padding inside the list sits under the tabs and stops D-pad down from reaching the rows.
+        LazyColumn(Modifier.fillMaxSize().padding(top = TopBarHeight), contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)) {
             item(key = "teams") {
                 RowSection("Your teams") {
                     items(f.teams, key = { it.topic.name }) { card ->

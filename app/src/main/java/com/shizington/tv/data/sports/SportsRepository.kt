@@ -25,9 +25,11 @@ import java.time.ZoneOffset
 enum class SportTopic(val label: String, private val pattern: Regex) {
     MAN_UTD("Man Utd", Regex("""man(chester)?\.?\s*(utd|united)|\bmutv\b|\bmufc\b|red devils|old trafford""", RegexOption.IGNORE_CASE)),
     ENGLAND("England", Regex("""\bengland\b|three lions|lionesses""", RegexOption.IGNORE_CASE)),
+    ENGLAND_RUGBY("England Rugby", Regex("""\bengland\b.*\brugby\b|\brugby\b.*\bengland\b|red roses""", RegexOption.IGNORE_CASE)),
     PREMIER_LEAGUE("Premier League", Regex("""premier league|\bpl match\b|monday night football|super sunday|match of the day|\bmotd\b|football first""", RegexOption.IGNORE_CASE)),
     CHAMPIONS_LEAGUE("Champions League", Regex("""champions league|\bucl\b|europa league|conference league""", RegexOption.IGNORE_CASE)),
     F1("Formula 1", Regex("""formula 1|formula one|\bf1\b|grand prix""", RegexOption.IGNORE_CASE)),
+    MOTOGP("MotoGP", Regex("""motogp|\bmoto[23]\b|world superbikes?|\bwsbk\b""", RegexOption.IGNORE_CASE)),
     CRICKET("Cricket", Regex("""cricket|test match|the hundred|\bt20\b|\bodi\b|\bashes\b""", RegexOption.IGNORE_CASE)),
     RUGBY("Rugby", Regex("""rugby|six nations|super league""", RegexOption.IGNORE_CASE)),
     DARTS("Darts", Regex("""\bdarts\b|\bpdc\b""", RegexOption.IGNORE_CASE)),
@@ -41,7 +43,7 @@ enum class SportTopic(val label: String, private val pattern: Regex) {
 
     companion object {
         /** Teams get top billing; everything else is a sport. */
-        val teams = listOf(MAN_UTD, ENGLAND)
+        val teams = listOf(MAN_UTD, ENGLAND, ENGLAND_RUGBY)
     }
 }
 
@@ -137,7 +139,8 @@ class SportsRepository(private val xtream: XtreamRepository, private val http: O
             val next = card.next ?: return@map card
             val nearKickoff = listings.filter { kotlin.math.abs(it.entry.startMs - next.kickoffMs) <= 45 * 60_000L || (it.entry.startMs <= next.kickoffMs && it.entry.endMs > next.kickoffMs) }
             val tv = nearKickoff.filter { l ->
-                card.topic in l.topics || mentions(l, next.home) || mentions(l, next.away)
+                val otherCode = card.topic == SportTopic.ENGLAND && SportTopic.RUGBY in l.topics
+                !otherCode && (card.topic in l.topics || mentions(l, next.home) || mentions(l, next.away))
             }.maxByOrNull { priority(it) }
             card.copy(nextOnTv = tv)
         }
@@ -177,9 +180,12 @@ class SportsRepository(private val xtream: XtreamRepository, private val http: O
         // MUTV is all Man Utd; dedicated F1/cricket/racing channels imply their sport.
         if (ch.name.contains("MUTV", true)) topics += SportTopic.MAN_UTD
         if (ch.name.contains("F1", true)) topics += SportTopic.F1
+        // Bike races are "grand prix" too; only call them F1 on an F1 channel.
+        if (SportTopic.MOTOGP in topics && !ch.name.contains("F1", true)) topics -= SportTopic.F1
         if (ch.name.contains("Cricket", true)) topics += SportTopic.CRICKET
         if (ch.name.contains("Racing", true)) topics += SportTopic.RACING
         // "England" on a cricket or rugby channel is still England, which is what we want.
+        if (SportTopic.ENGLAND in topics && SportTopic.RUGBY in topics) topics += SportTopic.ENGLAND_RUGBY
         return if (topics.isEmpty()) null else SportListing(ch, e, topics)
     }
 
@@ -204,9 +210,17 @@ class SportsRepository(private val xtream: XtreamRepository, private val http: O
         val candidates = streams.filter { s ->
             s.epgChannelId != null && (s.categoryId in sportCats || TERRESTRIAL.containsMatchIn(s.name))
         }
+        // Providers list the same channel many ways (HD, SD, "Hevc", "FHD 50FPS"). They share one guide, so
+        // fetch it once: ~240 streams come down to ~100 guide requests, and "On now" stops showing duplicates.
         return ChannelGroup.group(candidates)
-            .sortedWith(compareByDescending<ChannelGroup> { if (it.name.startsWith("UK", true)) 1 else 0 }.thenBy { it.num ?: Int.MAX_VALUE })
-            .take(140)
+            .filterNot { PLUS_ONE.containsMatchIn(it.name) }
+            .sortedWith(
+                compareByDescending<ChannelGroup> { if (it.name.startsWith("UK", true)) 1 else 0 }
+                    .thenBy { if (it.name.contains("hevc", true)) 1 else 0 }
+                    .thenBy { it.num ?: Int.MAX_VALUE },
+            )
+            .distinctBy { it.epgStream.epgChannelId?.lowercase() ?: it.key }
+            .take(110)
     }
 
     // ---- TheSportsDB (free tier: next and last fixture per team) ----
@@ -232,8 +246,9 @@ class SportsRepository(private val xtream: XtreamRepository, private val http: O
         val hs = o.str("intHomeScore")?.toIntOrNull()
         val aws = o.str("intAwayScore")?.toIntOrNull()
         return Fixture(
-            home = o.str("strHomeTeam") ?: return null,
-            away = o.str("strAwayTeam") ?: return null,
+            // National rugby sides come back as "Australia Rugby"; the card already says it's rugby.
+            home = o.str("strHomeTeam")?.removeSuffix(" Rugby") ?: return null,
+            away = o.str("strAwayTeam")?.removeSuffix(" Rugby") ?: return null,
             homeBadge = o.str("strHomeTeamBadge"),
             awayBadge = o.str("strAwayTeamBadge"),
             league = o.str("strLeague"),
@@ -255,9 +270,11 @@ class SportsRepository(private val xtream: XtreamRepository, private val http: O
     }
 
     companion object {
-        private val TEAMS = listOf(SportTopic.MAN_UTD to 133612L, SportTopic.ENGLAND to 133914L)
+        private val TEAMS = listOf(SportTopic.MAN_UTD to 133612L, SportTopic.ENGLAND to 133914L, SportTopic.ENGLAND_RUGBY to 137123L)
         private val MAJOR = setOf(SportTopic.PREMIER_LEAGUE, SportTopic.CHAMPIONS_LEAGUE, SportTopic.F1)
         private val SPORT_CATEGORY = Regex("""^uk[: ]+sport|uk sports|sky sports|live football|international football|ppv|live events|rugby|\bf1\b|motor sport|darts|tennis|wimbledon|wst|matchroom|ufc|world cup|cricket|boxing|golf|racing""", RegexOption.IGNORE_CASE)
-        private val TERRESTRIAL = Regex("""^uk\s*(fhd|hd|sd)?\s*:\s*(bbc one|bbc two|itv ?1?|itv4|channel 4|channel 5|mutv|premier sports)""", RegexOption.IGNORE_CASE)
+        // The national feeds only: "BBC One Wales", "ITV Anglia East" etc. carry the same sport under another guide id.
+        private val TERRESTRIAL = Regex("""^uk\s*(fhd|hd|sd)?\s*:\s*(bbc one|bbc two|itv ?1?|itv4|channel 4|channel 5|mutv|premier sports ?\d?)\s*(hd|fhd)?\s*$""", RegexOption.IGNORE_CASE)
+        private val PLUS_ONE = Regex("""\+\s*1\b""")
     }
 }
