@@ -78,16 +78,22 @@ class RecommendationEngine(
 
     private val catalogLock = kotlinx.coroutines.sync.Mutex()
     private var cachedCatalog: Catalog? = null
-    private var catalogAt = 0L
 
-    /** One index of the provider's films and series, shared by Home and New & Hot (rebuilt every 20 min). */
+    /**
+     * One index of the provider's films and series, shared by Home, New & Hot and detail pages. It is rebuilt only
+     * when the underlying lists change (sign-in, "refresh catalogue"), not on a timer: on a Fire TV Stick the rebuild
+     * maxes the CPU and briefly holds two copies, and doing it every 20 minutes got the app killed for memory.
+     */
     private suspend fun catalog(): Catalog = catalogLock.withLock {
-        cachedCatalog?.takeIf { System.currentTimeMillis() - catalogAt < 20 * 60_000L }?.let { return it }
         coroutineScope {
             val movies = async { runCatching { xtream.allStreams(ContentType.MOVIE) }.getOrDefault(emptyList()) }
             val series = async { runCatching { xtream.allStreams(ContentType.SERIES) }.getOrDefault(emptyList()) }
-            withContext(Dispatchers.Default) { Catalog(movies.await(), series.await()) }
-        }.also { if (it.movies.isNotEmpty()) { cachedCatalog = it; catalogAt = System.currentTimeMillis() } }
+            val m = movies.await()
+            val s = series.await()
+            cachedCatalog?.takeIf { it.movies === m && it.series === s }?.let { return@coroutineScope it }
+            cachedCatalog = null // let the old index go before building the new one
+            withContext(Dispatchers.Default) { Catalog(m, s) }.also { if (it.movies.isNotEmpty()) cachedCatalog = it }
+        }
     }
 
     /** TMDB titles that the provider actually has, in the same order. */

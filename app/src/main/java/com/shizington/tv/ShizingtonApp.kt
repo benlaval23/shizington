@@ -72,7 +72,7 @@ class ShizingtonApp : Application(), ImageLoaderFactory {
         .okHttpClient { container.httpClient }
         // Fire TV sticks have ~1 GB of RAM shared with Fire OS; a modest cache avoids the low-memory killer.
         .memoryCache {
-            val cap = 32L * 1024 * 1024
+            val cap = 24L * 1024 * 1024
             MemoryCache.Builder(this).maxSizePercent(0.15).build().let {
                 if (it.maxSize > cap) MemoryCache.Builder(this).maxSizeBytes(cap.toInt()).build() else it
             }
