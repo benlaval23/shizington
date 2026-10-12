@@ -103,7 +103,7 @@ fun SplashScreen(navigator: AppNavigator) {
 
 @Composable
 fun Logo(sizeSp: Int) {
-    Text("SHIZINGTON", color = AppColors.Accent, fontSize = sizeSp.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+    Text("ALICE TV", color = AppColors.Accent, fontSize = sizeSp.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
 }
 
 class LoginViewModel(private val c: AppContainer, initialMessage: String?) : ViewModel() {

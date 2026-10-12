@@ -1,4 +1,4 @@
-# Shizington
+# ALICE TV
 
 IPTV player for Fire TV / Android TV. Built with Kotlin, Compose for TV, Media3 ExoPlayer, Retrofit/OkHttp, Coil and Room. Supports Android 5.1+ (minSdk 22).
 

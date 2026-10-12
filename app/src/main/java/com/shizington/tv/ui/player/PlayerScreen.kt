@@ -420,7 +420,13 @@ private fun TrackPicker(vm: PlayerViewModel, type: Int, onDismiss: () -> Unit) {
     @Suppress("UNUSED_VARIABLE") val version = vm.tracksVersion // recompose when tracks change
     val options = remember(vm.tracksVersion, type) { vm.trackOptions(type) }
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(type) { firstFocus.tryRequestFocus() }
+    LaunchedEffect(type) {
+        // The target lives in a LazyColumn, so it may not be composed on the first frame.
+        repeat(10) {
+            if (firstFocus.tryRequestFocus()) return@LaunchedEffect
+            delay(50)
+        }
+    }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.CenterEnd) {
         Column(
             Modifier.fillMaxHeight().width(380.dp).background(AppColors.Surface).padding(24.dp),

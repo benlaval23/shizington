@@ -14,7 +14,7 @@ import com.shizington.tv.data.model.PlaybackRequest
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
-const val USER_AGENT = "Shizington/1.0 (Linux; Android) ExoPlayer"
+const val USER_AGENT = "AliceTV/1.0 (Linux; Android) ExoPlayer"
 
 /** Hand-rolled dependency container; the app is small enough not to need a DI framework. */
 class AppContainer(app: Application) {

@@ -89,7 +89,7 @@ fun MainScreen(navigator: AppNavigator) {
                 .padding(start = 48.dp, end = 32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("SHIZINGTON", color = AppColors.Accent, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Text("ALICE TV", color = AppColors.Accent, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             Spacer(Modifier.width(32.dp))
             TabRow(
                 selectedTabIndex = selected,

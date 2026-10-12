@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -38,6 +40,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -146,7 +149,10 @@ fun RemoteImage(
 val BottomScrim = Brush.verticalGradient(listOf(Color.Transparent, AppColors.Background))
 val StartScrim = Brush.horizontalGradient(listOf(AppColors.Background, AppColors.Background.copy(alpha = 0.7f), Color.Transparent))
 
-/** D-pad friendly text field: shows a focus ring and opens the IME on centre/enter. */
+/**
+ * D-pad friendly text field. It stays read-only (no input session, so no keyboard) until the user
+ * presses OK; TV keyboards cover the screen and capture the D-pad, so they must never open on focus alone.
+ */
 @Composable
 fun TvTextField(
     value: String,
@@ -159,22 +165,55 @@ fun TvTextField(
     onImeAction: () -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(editing) { if (editing) keyboard?.show() }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
+        readOnly = !editing,
         textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
-        cursorBrush = SolidColor(AppColors.Accent),
+        cursorBrush = SolidColor(if (editing) AppColors.Accent else Color.Transparent),
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction, autoCorrectEnabled = false),
-        keyboardActions = KeyboardActions(onAny = { onImeAction() }),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = keyboardType,
+            imeAction = imeAction,
+            autoCorrectEnabled = false,
+            showKeyboardOnFocus = false,
+        ),
+        keyboardActions = KeyboardActions(onAny = {
+            editing = false
+            onImeAction()
+        }),
         modifier = modifier
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (!it.isFocused) editing = false
+            }
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyUp && (e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter)) {
-                    keyboard?.show(); true
-                } else false
+                val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                // Text fields use the arrows for the cursor; on TV up/down must move between controls.
+                val move = when (e.key) {
+                    Key.DirectionUp -> FocusDirection.Up
+                    Key.DirectionDown -> FocusDirection.Down
+                    Key.DirectionLeft -> if (!editing) FocusDirection.Left else null
+                    Key.DirectionRight -> if (!editing) FocusDirection.Right else null
+                    else -> null
+                }
+                when {
+                    move != null -> {
+                        if (e.type == KeyEventType.KeyDown) focusManager.moveFocus(move)
+                        true
+                    }
+                    !ok -> false
+                    e.type == KeyEventType.KeyUp -> {
+                        if (editing) keyboard?.show() else editing = true
+                        true
+                    }
+                    else -> true
+                }
             },
         decorationBox = { inner ->
             Box(
