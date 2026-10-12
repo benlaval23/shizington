@@ -1,6 +1,9 @@
 package com.shizington.tv.ui.browse
 
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import com.shizington.tv.ui.theme.AppColors
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -171,8 +174,13 @@ class BrowseViewModel(private val mode: BrowseMode, private val c: AppContainer)
                 HeroData(
                     stream.key, label ?: "Movie", stream.name,
                     cached?.backdrop ?: cached?.poster ?: stream.icon,
-                    listOfNotNull(cached?.releaseDate?.take(4), cached?.duration, formatRating(cached?.rating ?: stream.rating)),
-                    cached?.plot,
+                    listOfNotNull(
+                        cached?.releaseDate?.take(4) ?: stream.year,
+                        cached?.duration,
+                        formatRating(cached?.rating ?: stream.rating),
+                        (cached?.genre ?: stream.genre)?.substringBefore(","),
+                    ),
+                    cached?.plot ?: stream.plot,
                 )
             }
         }
@@ -184,8 +192,13 @@ class BrowseViewModel(private val mode: BrowseMode, private val c: AppContainer)
                 if (hero?.key == stream.key) {
                     hero = hero?.copy(
                         image = info.backdrop ?: info.poster ?: stream.icon,
-                        meta = listOfNotNull(info.releaseDate?.take(4), info.duration, formatRating(info.rating ?: stream.rating), info.genre?.substringBefore(",")),
-                        plot = info.plot,
+                        meta = listOfNotNull(
+                            info.releaseDate?.take(4) ?: stream.year,
+                            info.duration,
+                            formatRating(info.rating ?: stream.rating),
+                            (info.genre ?: stream.genre)?.substringBefore(","),
+                        ),
+                        plot = info.plot ?: stream.plot,
                     )
                 }
             }
@@ -228,49 +241,58 @@ fun BrowseScreen(mode: BrowseMode, navigator: AppNavigator) {
             is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 ErrorMessage(rows.message, onRetry = vm::loadRows)
             }
-            is ListState.Ready -> CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(34.dp)) {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-                    // These slots always exist (1dp when empty, so the list anchors on them) so that local data
-                    // arriving after the catalogue grows in place instead of landing above the viewport.
-                    item(key = "continue") {
-                        Box(Modifier.heightIn(min = 1.dp)) {
-                            if (continueWatching.isNotEmpty()) {
-                                ContinueWatchingRow(continueWatching, vm.restoreKey, vm::focusRestored, vm::onProgressFocused) { p ->
-                                    vm.rememberFocus()
-                                    navigator.play(PlaybackRequest(listOf(p.toPlayable()), 0, p.positionMs))
+            is ListState.Ready -> Box(Modifier.fillMaxSize()) {
+                CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(44.dp)) {
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
+                        // These slots always exist (1dp when empty, so the list anchors on them) so that local data
+                        // arriving after the catalogue grows in place instead of landing above the viewport.
+                        item(key = "continue") {
+                            Box(Modifier.heightIn(min = 1.dp)) {
+                                if (continueWatching.isNotEmpty()) {
+                                    ContinueWatchingRow(continueWatching, vm.restoreKey, vm::focusRestored, vm::onProgressFocused) { p ->
+                                        vm.rememberFocus()
+                                        navigator.play(PlaybackRequest(listOf(p.toPlayable()), 0, p.positionMs))
+                                    }
                                 }
                             }
                         }
-                    }
-                    item(key = "favourites") {
-                        Box(Modifier.heightIn(min = 1.dp)) {
-                            if (favourites.isNotEmpty()) {
-                                StreamRow(
-                                    rowKey = "favourites",
-                                    title = "My favourites",
-                                    content = RowContent.Ready(favourites),
-                                    onLoad = {},
-                                    onFocused = { vm.onFocused("favourites", it) },
-                                    onClick = { open("favourites", it) },
-                                    restoreKey = vm.restoreKey,
-                                    onRestored = vm::focusRestored,
-                                )
+                        item(key = "favourites") {
+                            Box(Modifier.heightIn(min = 1.dp)) {
+                                if (favourites.isNotEmpty()) {
+                                    StreamRow(
+                                        rowKey = "favourites",
+                                        title = "My favourites",
+                                        content = RowContent.Ready(favourites),
+                                        onLoad = {},
+                                        onFocused = { vm.onFocused("favourites", it) },
+                                        onClick = { open("favourites", it) },
+                                        restoreKey = vm.restoreKey,
+                                        onRestored = vm::focusRestored,
+                                    )
+                                }
                             }
                         }
-                    }
-                    items(rows.value, key = { it.key }) { spec ->
-                        StreamRow(
-                            rowKey = spec.key,
-                            title = spec.title,
-                            content = vm.rowContent[spec.key],
-                            onLoad = { vm.loadRow(spec) },
-                            onFocused = { vm.onFocused(spec.key, it) },
-                            onClick = { open(spec.key, it) },
-                            restoreKey = vm.restoreKey,
-                            onRestored = vm::focusRestored,
-                        )
+                        items(rows.value, key = { it.key }) { spec ->
+                            StreamRow(
+                                rowKey = spec.key,
+                                title = spec.title,
+                                content = vm.rowContent[spec.key],
+                                onLoad = { vm.loadRow(spec) },
+                                onFocused = { vm.onFocused(spec.key, it) },
+                                onClick = { open(spec.key, it) },
+                                restoreKey = vm.restoreKey,
+                                onRestored = vm::focusRestored,
+                            )
+                        }
                     }
                 }
+                // Fade the row scrolled up under the hero so its captions don't peek out.
+                if (listState.canScrollBackward) Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(20.dp)
+                        .background(Brush.verticalGradient(listOf(AppColors.Background, AppColors.Background.copy(alpha = 0f)))),
+                )
             }
         }
     }

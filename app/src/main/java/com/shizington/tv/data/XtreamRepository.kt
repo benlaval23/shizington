@@ -206,28 +206,39 @@ class XtreamRepository(
                 ContentType.MOVIE -> Stream(
                     type = ContentType.MOVIE,
                     id = m["stream_id"]?.toLongId() ?: return@readObjectArray null,
-                    name = m["name"]?.trim().orEmpty(),
+                    name = displayTitle(m),
                     icon = (m["stream_icon"] ?: m["cover"]).nullIfBlank(),
                     categoryId = m["category_id"],
-                    extension = m["container_extension"].nullIfBlank() ?: "mp4",
+                    extension = m["container_extension"].nullIfBlank()?.lowercase() ?: "mp4",
                     rating = m["rating"].nullIfBlank(),
                     num = m["num"]?.toIntOrNull(),
+                    plot = m["plot"].nullIfBlank(),
+                    year = year(m),
+                    genre = m["genre"].nullIfBlank(),
                 )
                 else -> Stream(
                     type = ContentType.SERIES,
                     id = m["series_id"]?.toLongId() ?: return@readObjectArray null,
-                    name = m["name"]?.trim().orEmpty(),
+                    name = displayTitle(m),
                     icon = m["cover"].nullIfBlank(),
                     categoryId = m["category_id"],
                     rating = m["rating"].nullIfBlank(),
                     num = m["num"]?.toIntOrNull(),
                     plot = m["plot"].nullIfBlank(),
                     backdrop = m["backdrop_path"].nullIfBlank(),
-                    year = (m["releaseDate"] ?: m["release_date"] ?: m["year"])?.take(4).nullIfBlank(),
+                    year = year(m),
                     genre = m["genre"].nullIfBlank(),
                 )
             }
         }
+
+    /** Panels send `name` as "Title (2014)" and a clean `title`; prefer the clean one. */
+    private fun displayTitle(m: Map<String, String>): String =
+        (m["title"].nullIfBlank() ?: m["name"]).orEmpty().trim()
+
+    private fun year(m: Map<String, String>): String? =
+        (m["year"].nullIfBlank() ?: m["releaseDate"].nullIfBlank() ?: m["release_date"].nullIfBlank())
+            ?.take(4)?.takeIf { it.all(Char::isDigit) }
 
     suspend fun search(query: String, type: ContentType, limit: Int = 60): List<Stream> {
         val q = query.trim()
@@ -254,7 +265,7 @@ class XtreamRepository(
         val data = root.get("movie_data").asObj()
         MovieInfo(
             id = id,
-            name = data?.str("name") ?: info?.str("name", "o_name") ?: "",
+            name = data?.str("title") ?: info?.str("name", "o_name") ?: data?.str("name") ?: "",
             poster = info?.str("movie_image", "cover_big", "cover"),
             backdrop = info?.str("backdrop_path", "backdrop"),
             plot = info?.str("plot", "description"),
@@ -263,8 +274,10 @@ class XtreamRepository(
             genre = info?.str("genre"),
             releaseDate = info?.str("releasedate", "release_date", "releaseDate", "year"),
             rating = info?.str("rating"),
-            duration = info?.str("duration"),
-            extension = data?.str("container_extension") ?: "mp4",
+            duration = info?.str("duration_secs")?.toIntOrNull()?.let(::formatRuntime)
+                ?: info?.str("episode_run_time")?.toIntOrNull()?.let { formatRuntime(it * 60) }
+                ?: info?.str("duration")?.takeUnless { it.all { c -> c == '0' || c == ':' } },
+            extension = data?.str("container_extension")?.lowercase() ?: "mp4",
             categoryId = data?.str("category_id"),
         )
     }
@@ -293,11 +306,11 @@ class XtreamRepository(
                 id = e.str("id")?.toLongId() ?: return@mapNotNull null,
                 season = e.str("season")?.toIntOrNull() ?: seasonKey ?: 1,
                 episodeNum = e.str("episode_num")?.toIntOrNull() ?: 0,
-                title = e.str("title") ?: "Episode",
+                title = cleanEpisodeTitle(e.str("title"), e.str("episode_num")?.toIntOrNull()),
                 plot = epInfo?.str("plot", "description"),
                 image = epInfo?.str("movie_image", "cover_big"),
                 durationSecs = epInfo?.str("duration_secs")?.toIntOrNull(),
-                extension = e.str("container_extension") ?: "mp4",
+                extension = e.str("container_extension")?.lowercase() ?: "mp4",
             )
         }
 
@@ -314,7 +327,7 @@ class XtreamRepository(
 
         SeriesInfo(
             id = id,
-            name = info?.str("name") ?: "",
+            name = info?.str("title", "name") ?: "",
             cover = info?.str("cover"),
             backdrop = info?.str("backdrop_path"),
             plot = info?.str("plot"),
@@ -325,6 +338,22 @@ class XtreamRepository(
             rating = info?.str("rating"),
             seasons = seasons,
         )
+    }
+
+    /** "100 Foot Wave - S01E03 - Chapter III" -> "Chapter III"; a bare "Episode" becomes "Episode 3". */
+    private fun cleanEpisodeTitle(raw: String?, num: Int?): String {
+        val stripped = raw?.replace(Regex("^.*?\\bS\\d+\\s*E\\d+\\s*[-:]?\\s*", RegexOption.IGNORE_CASE), "")?.trim()
+        return when {
+            stripped.isNullOrBlank() || stripped.equals("episode", ignoreCase = true) -> "Episode ${num ?: ""}".trim()
+            else -> stripped
+        }
+    }
+
+    private fun formatRuntime(secs: Int): String? {
+        if (secs <= 0) return null
+        val h = secs / 3600
+        val m = (secs % 3600) / 60
+        return if (h > 0) "${h}h ${m}m" else "${m}m"
     }
 
     fun cachedMovieInfo(id: Long): MovieInfo? = movieInfos.peek(id)

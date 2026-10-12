@@ -43,7 +43,7 @@ jobs:
             # Updates won't install over a previous build signed with a different throwaway key.
             echo "::warning::KEYSTORE_BASE64 secret not set - signing with a temporary key."
             keytool -genkeypair -v -keystore "$KS" -alias ci -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass cipassword -keypass cipassword -dname "CN=Shizington CI"
+              -storepass cipassword -keypass cipassword -dname "CN=ALICE TV CI"
             {
               echo "SIGNING_STORE_FILE=$KS"
               echo "SIGNING_STORE_PASSWORD=cipassword"
@@ -62,15 +62,15 @@ jobs:
         run: $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK
-        run: mv app/build/outputs/apk/release/app-release.apk "shizington-${{ github.run_number }}.apk"
+        run: mv app/build/outputs/apk/release/app-release.apk "alice-tv-${{ github.run_number }}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: shizington-release-apk
-          path: shizington-*.apk
+          name: alice-tv-release-apk
+          path: alice-tv-*.apk
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: shizington-*.apk
+          files: alice-tv-*.apk

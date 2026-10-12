@@ -189,6 +189,11 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
             player.prepare()
             return
         }
+        if (e.errorCode in DECODER_ERRORS) {
+            // Retrying can't help: this device has no decoder for the stream's format (often HEVC on older hardware).
+            error = "This video's format isn't supported on this device"
+            return
+        }
         val maxRetries = if (isLive) 5 else 3
         if (retries < maxRetries) {
             retries++
@@ -312,5 +317,15 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
         }
         player.release()
         super.onCleared()
+    }
+
+    private companion object {
+        val DECODER_ERRORS = setOf(
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        )
     }
 }
