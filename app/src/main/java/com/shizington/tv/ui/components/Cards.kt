@@ -66,6 +66,7 @@ fun PosterCard(
     width: Dp = 108.dp,
     onFocused: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
+    badge: String? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.width(width)) {
@@ -84,7 +85,10 @@ fun PosterCard(
             border = focusBorder(),
             colors = cardColors(),
         ) {
-            RemoteImage(tmdbSized(stream.icon, "w342"), stream.name, Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize()) {
+                RemoteImage(tmdbSized(stream.icon, "w342"), stream.name, Modifier.fillMaxSize())
+                if (badge != null) CardBadge(badge, Modifier.align(Alignment.TopStart).padding(6.dp))
+            }
         }
         CardCaption(stream.name, focused)
     }
@@ -180,4 +184,18 @@ fun ProgressCard(
         }
         CardCaption(title, focused, subtitle)
     }
+}
+
+/** Small label pinned to a card corner ("NEW", "GEM", "LIVE"…). */
+@Composable
+fun CardBadge(text: String, modifier: Modifier = Modifier, color: Color = AppColors.Accent) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White,
+        maxLines = 1,
+        modifier = modifier
+            .background(color, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }

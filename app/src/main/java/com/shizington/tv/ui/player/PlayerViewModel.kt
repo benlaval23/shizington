@@ -45,7 +45,24 @@ data class TrackOption(val label: String, val group: Tracks.Group?, val index: I
 
 class PlayerViewModel(private val app: Application, private val c: AppContainer, request: PlaybackRequest) : ViewModel() {
 
+    private var syncSink: AudioSyncSink? = null
     val player: ExoPlayer = buildPlayer()
+
+    /** Sound/picture offset in ms (positive = sound later). Remembered, since it's usually the TV or soundbar's delay. */
+    var audioDelayMs by mutableIntStateOf(c.credentialsStore.audioDelayMs)
+        private set
+
+    init {
+        syncSink?.delayUs = audioDelayMs * 1000L
+    }
+
+    fun nudgeAudio(deltaMs: Int) = setAudioDelay(audioDelayMs + deltaMs)
+
+    fun setAudioDelay(ms: Int) {
+        audioDelayMs = ms.coerceIn(-MAX_AUDIO_DELAY_MS, MAX_AUDIO_DELAY_MS)
+        syncSink?.delayUs = audioDelayMs * 1000L
+        c.credentialsStore.audioDelayMs = audioDelayMs
+    }
 
     // Episodes advance by replacing the single queue entry; live keeps the whole channel list.
     private val queue = request.items.toMutableStateList()
@@ -122,7 +139,13 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
         val extractors = DefaultExtractorsFactory()
             .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS)
             .setConstantBitrateSeekingEnabled(true)
-        val renderers = DefaultRenderersFactory(app).setEnableDecoderFallback(true)
+        val renderers = object : DefaultRenderersFactory(app) {
+            override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean) =
+                super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)?.let { AudioSyncSink(it).also { s -> syncSink = s } }
+        }.setEnableDecoderFallback(true)
+            // The stick has no Dolby/DTS decoder and many TVs refuse Dolby over HDMI, which left those films silent.
+            // With extensions on, FFmpeg decodes whatever the built-in decoders and HDMI passthrough can't.
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         val loadControl = DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 2_000, 4_000).build()
         return ExoPlayer.Builder(app, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource, extractors))
@@ -130,10 +153,39 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
-            .apply { playWhenReady = true }
+            .apply {
+                playWhenReady = true
+                // Subtitles start off (providers often flag a forced/default text track); turn on from the Subtitles button.
+                trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            }
+    }
+
+    // ---- Viewing signals (what was watched and for how long), recorded when an item ends or is switched ----
+
+    private var sessionItem: Playable? = null
+    private var sessionWallStart = 0L
+
+    /** Records the item that was playing before the player moves on (or closes). */
+    private fun closeSession() {
+        val p = sessionItem ?: return
+        sessionItem = null
+        val dur = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        val pos = player.currentPosition
+        val wallStart = sessionWallStart
+        val programme = epg.firstOrNull { it.startMs <= System.currentTimeMillis() && it.endMs > System.currentTimeMillis() }?.title
+        @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+        kotlinx.coroutines.GlobalScope.launch {
+            when {
+                p.type == ContentType.LIVE -> c.library.logLive(p.name, p.id, p.programme ?: programme, wallStart)
+                dur > 0 -> c.library.logView(p, pos, dur)
+            }
+        }
     }
 
     private fun play(p: Playable, startMs: Long) {
+        closeSession()
+        sessionItem = p
+        sessionWallStart = System.currentTimeMillis()
         renderedFirstFrame = false
         error = null
         epg = emptyList()
@@ -380,6 +432,7 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
     }
 
     override fun onCleared() {
+        closeSession()
         val p = current
         val dur = player.duration
         val pos = player.currentPosition
@@ -393,6 +446,7 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
     }
 
     private companion object {
+        const val MAX_AUDIO_DELAY_MS = 2_000
         val DECODER_ERRORS = setOf(
             PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
             PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,

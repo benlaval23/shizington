@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.detail
 
+import com.shizington.tv.ui.components.SkeletonDetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,14 @@ import com.shizington.tv.ui.components.PosterCard
 import com.shizington.tv.ui.components.ProgressLine
 import com.shizington.tv.ui.components.RowSection
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.runtime.CompositionLocalProvider
+import com.shizington.tv.data.reco.DetailExtras
+import com.shizington.tv.ui.components.CardBadge
+import com.shizington.tv.ui.components.rememberPivotSpec
 import com.shizington.tv.ui.components.appViewModel
 import com.shizington.tv.ui.components.formatDuration
 import com.shizington.tv.ui.components.tryRequestFocus
@@ -58,6 +67,8 @@ class MovieDetailViewModel(private val id: Long, private val c: AppContainer) : 
 
     var similar by mutableStateOf<List<Stream>>(emptyList())
         private set
+    var extras by mutableStateOf<DetailExtras?>(null)
+        private set
 
     init { load() }
 
@@ -67,6 +78,11 @@ class MovieDetailViewModel(private val id: Long, private val c: AppContainer) : 
             info = try {
                 val movie = c.xtream.movieInfo(id)
                 launch { similar = runCatching { c.xtream.similar(ContentType.MOVIE, id, movie.genre) }.getOrDefault(emptyList()) }
+                launch {
+                    extras = runCatching {
+                        c.recommendations.detailExtras(ContentType.MOVIE, id, movie.name, movie.releaseDate?.take(4)?.toIntOrNull(), movie.tmdbId)
+                    }.getOrNull()
+                }
                 ListState.Ready(movie)
             } catch (e: Exception) {
                 ListState.Failed(e.message ?: "Couldn't load this movie")
@@ -87,7 +103,7 @@ class MovieDetailViewModel(private val id: Long, private val c: AppContainer) : 
 fun MovieDetailScreen(id: Long, navigator: AppNavigator) {
     val vm = appViewModel(key = "movie_$id") { MovieDetailViewModel(id, it) }
     when (val state = vm.info) {
-        ListState.Loading -> Loader(Modifier.fillMaxSize())
+        ListState.Loading -> SkeletonDetail()
         is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ErrorMessage(state.message, vm::load) }
         is ListState.Ready -> MovieDetailContent(state.value, vm, navigator)
     }
@@ -102,67 +118,80 @@ private fun MovieDetailContent(movie: MovieInfo, vm: MovieDetailViewModel, navig
     LaunchedEffect(movie.id) { playFocus.tryRequestFocus() }
     val resumable = progress?.takeIf { it.isResumable }
 
+    val d = vm.extras?.details
+    val trailer = movie.trailer?.takeIf { youTubeId(it) != null } ?: trailerUrl(d?.trailerKey)
+    // Provider bitrates under ~1.2 Mbps are almost always screener/cam copies.
+    val lowQuality = movie.bitrateKbps?.let { it in 1..1200 } == true
+
     Box(Modifier.fillMaxSize()) {
-        Backdrop(movie.backdrop ?: movie.poster)
-        Column(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(start = 48.dp, top = 40.dp).width(600.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("MOVIE", style = MaterialTheme.typography.labelMedium, color = AppColors.Accent)
-                Text(movie.name, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                MetaRow(
-                    listOfNotNull(
-                        movie.releaseDate?.take(4),
-                        movie.duration,
-                        formatRating(movie.rating),
-                        movie.ageRating,
-                        movie.genre,
-                    ),
-                )
-                movie.plot?.let {
-                    Text(it, style = MaterialTheme.typography.bodyLarge, maxLines = 3, overflow = TextOverflow.Ellipsis, color = AppColors.OnBackground.copy(alpha = 0.9f))
-                }
-                val credits = listOfNotNull(movie.director?.let { "Director: $it" }, movie.country).joinToString("   ·   ")
-                if (credits.isNotEmpty()) Text(credits, style = MaterialTheme.typography.bodySmall, color = AppColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                movie.cast?.let { Text("Cast: $it", style = MaterialTheme.typography.bodySmall, color = AppColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                if (resumable != null) {
-                    Column(Modifier.width(280.dp).padding(top = 4.dp)) {
-                        ProgressLine(resumable.fraction)
-                        Text(
-                            "${formatDuration(resumable.durationMs - resumable.positionMs)} left",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = AppColors.Muted,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
+        Backdrop(d?.backdrop ?: movie.backdrop ?: movie.poster)
+        CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(44.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+                item(key = "head") {
+                    Column(
+                        Modifier.padding(start = 48.dp, top = 36.dp, bottom = 12.dp).width(620.dp).heightIn(min = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(listOfNotNull("MOVIE", d?.collectionName?.uppercase()).joinToString("  ·  "), style = MaterialTheme.typography.labelMedium, color = AppColors.Accent)
+                        DetailTitle(movie.name, d?.logo)
+                        d?.tagline?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, style = MaterialTheme.typography.titleMedium, color = AppColors.OnBackground.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            (d?.certification ?: movie.ageRating)?.let { CertBadge(it) }
+                            MetaRow(
+                                listOfNotNull(
+                                    movie.releaseDate?.take(4),
+                                    movie.duration ?: d?.runtime?.let { formatRuntime(it) },
+                                    formatRating(movie.rating),
+                                    movie.genre,
+                                ),
+                            )
+                            if (lowQuality) CardBadge("LOW-QUALITY COPY", color = AppColors.Rating.copy(alpha = 0.9f))
+                        }
+                        movie.plot?.let {
+                            Text(it, style = MaterialTheme.typography.bodyLarge, maxLines = 3, overflow = TextOverflow.Ellipsis, color = AppColors.OnBackground.copy(alpha = 0.9f))
+                        }
+                        val credits = listOfNotNull((d?.director ?: movie.director)?.let { "Director: $it" }, movie.country).joinToString("   ·   ")
+                        if (credits.isNotEmpty()) Text(credits, style = MaterialTheme.typography.bodySmall, color = AppColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (d == null) movie.cast?.let { Text("Cast: $it", style = MaterialTheme.typography.bodySmall, color = AppColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        if (resumable != null) {
+                            Column(Modifier.width(280.dp).padding(top = 4.dp)) {
+                                ProgressLine(resumable.fraction)
+                                Text(
+                                    "${formatDuration(resumable.durationMs - resumable.positionMs)} left",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AppColors.Muted,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
+                            ActionButton(
+                                text = if (resumable != null) "Resume" else "Play",
+                                icon = ActionIcon.Play,
+                                primary = true,
+                                modifier = Modifier.focusRequester(playFocus),
+                                onClick = { navigator.play(PlaybackRequest(listOf(vm.playable(movie)), 0, resumable?.positionMs ?: 0L)) },
+                            )
+                            if (resumable != null) {
+                                ActionButton("From start", ActionIcon.Restart, onClick = { navigator.play(PlaybackRequest(listOf(vm.playable(movie)), 0, 0L)) })
+                            }
+                            if (trailer != null) {
+                                ActionButton("Trailer", ActionIcon.Trailer, onClick = { openTrailer(context, trailer) })
+                            }
+                            ActionButton(
+                                text = if (favourite) "On My List" else "My List",
+                                icon = if (favourite) ActionIcon.Favourite else ActionIcon.NotFavourite,
+                                onClick = { vm.toggleFavourite(movie) },
+                            )
+                        }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    ActionButton(
-                        text = if (resumable != null) "Resume" else "Play",
-                        icon = ActionIcon.Play,
-                        primary = true,
-                        modifier = Modifier.focusRequester(playFocus),
-                        onClick = { navigator.play(PlaybackRequest(listOf(vm.playable(movie)), 0, resumable?.positionMs ?: 0L)) },
-                    )
-                    if (resumable != null) {
-                        ActionButton("From start", ActionIcon.Restart, onClick = { navigator.play(PlaybackRequest(listOf(vm.playable(movie)), 0, 0L)) })
-                    }
-                    if (youTubeId(movie.trailer) != null) {
-                        ActionButton("Trailer", ActionIcon.Trailer, onClick = { openTrailer(context, movie.trailer) })
-                    }
-                    ActionButton(
-                        text = if (favourite) "In favourites" else "Add to favourites",
-                        icon = if (favourite) ActionIcon.Favourite else ActionIcon.NotFavourite,
-                        onClick = { vm.toggleFavourite(movie) },
-                    )
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            if (vm.similar.isNotEmpty()) {
-                RowSection("More like this") {
-                    items(vm.similar, key = { it.key }) { s ->
-                        PosterCard(s, onClick = { navigator.openMovie(s.id) }, width = 84.dp)
-                    }
-                }
+                extrasRows(vm.extras, navigator, vm.similar)
             }
         }
     }
 }
+
+internal fun formatRuntime(min: Int) = if (min >= 60) "${min / 60}h ${min % 60}m" else "${min}m"

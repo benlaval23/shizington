@@ -79,7 +79,7 @@ class CatchUpViewModel(private val streamId: Long, private val c: AppContainer) 
     }
 }
 
-private val dayFormat = SimpleDateFormat("EEEE d MMMM", Locale.getDefault())
+private val dayFormat = SimpleDateFormat("EEEE d MMMM", Locale.UK)
 
 private fun dayLabel(ms: Long): String {
     val day = Calendar.getInstance().apply { timeInMillis = ms }

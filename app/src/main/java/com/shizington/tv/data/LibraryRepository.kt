@@ -7,6 +7,7 @@ import com.shizington.tv.data.model.ContentType
 import com.shizington.tv.data.model.Playable
 import com.shizington.tv.data.model.Stream
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /** Local, per-device library: favourites and watch progress (continue watching). */
@@ -84,9 +85,79 @@ class LibraryRepository(private val db: AppDatabase) {
 
     suspend fun removeProgress(type: ContentType, id: Long) = db.progress().delete(type.name, id)
 
+    // ---- Signals for recommendations (kept on the device) ----
+
+    suspend fun logView(p: Playable, watchedMs: Long, durationMs: Long) {
+        if (p.type != ContentType.MOVIE && p.type != ContentType.EPISODE) return
+        if (watchedMs < 60_000L && durationMs > 0 && watchedMs < durationMs * 0.9) {
+            // Under a minute: browsing, not a signal, unless it was a very short item.
+            if (watchedMs < 20_000L) return
+        }
+        val now = java.util.Calendar.getInstance()
+        db.signals().insertView(
+            com.shizington.tv.data.db.ViewEventEntity(
+                type = p.type.name,
+                contentId = p.id,
+                title = p.seriesName ?: p.name,
+                seriesId = p.seriesId,
+                genres = null,
+                people = null,
+                startedAt = System.currentTimeMillis() - watchedMs,
+                watchedMs = watchedMs,
+                durationMs = durationMs,
+                hourOfDay = now.get(java.util.Calendar.HOUR_OF_DAY),
+                dayOfWeek = now.get(java.util.Calendar.DAY_OF_WEEK),
+            ),
+        )
+    }
+
+    suspend fun logLive(channelName: String, streamId: Long, programme: String?, startedAt: Long) {
+        val minutes = ((System.currentTimeMillis() - startedAt) / 60_000L).toInt()
+        if (minutes < 1) return
+        db.signals().insertLive(
+            com.shizington.tv.data.db.LiveSessionEntity(
+                channelName = channelName,
+                streamId = streamId,
+                programme = programme,
+                startedAt = startedAt,
+                minutes = minutes,
+                hourOfDay = java.util.Calendar.getInstance().apply { timeInMillis = startedAt }.get(java.util.Calendar.HOUR_OF_DAY),
+            ),
+        )
+    }
+
+    /** +1 = "More like this", -1 = "Not for me", 0 clears it. */
+    suspend fun setFeedback(stream: Stream, value: Int) {
+        if (value == 0) {
+            db.signals().deleteFeedback(stream.type.name, stream.id)
+        } else {
+            db.signals().upsertFeedback(
+                com.shizington.tv.data.db.FeedbackEntity(stream.type.name, stream.id, stream.name, value, stream.genre, stream.people, System.currentTimeMillis()),
+            )
+        }
+    }
+
+    val feedback: Flow<List<com.shizington.tv.data.db.FeedbackEntity>> = db.signals().observeFeedback()
+
+    suspend fun signalsSnapshot() = Signals(
+        views = db.signals().recentViews(),
+        feedback = db.signals().allFeedback(),
+        live = db.signals().recentLive(),
+        progress = db.progress().observeRecent().first(),
+        favourites = favourites.first(),
+    )
+
+    val watchlist: Flow<List<com.shizington.tv.data.db.WatchlistEntity>> = db.tmdb().observeWatchlist()
+
+    suspend fun addToWatchlist(e: com.shizington.tv.data.db.WatchlistEntity) = db.tmdb().addWatchlist(e)
+    suspend fun removeFromWatchlist(key: String) = db.tmdb().removeWatchlist(key)
+
     suspend fun clearAll() {
         db.favourites().clear()
         db.progress().clear()
+        db.signals().clearViews()
+        db.signals().clearFeedback()
+        db.signals().clearLive()
     }
 }
 
@@ -101,4 +172,13 @@ fun ProgressEntity.toPlayable() = Playable(
     seriesCover = seriesCover,
     season = season,
     episode = episode,
+)
+
+/** Everything the recommender learns from, read in one go. */
+data class Signals(
+    val views: List<com.shizington.tv.data.db.ViewEventEntity>,
+    val feedback: List<com.shizington.tv.data.db.FeedbackEntity>,
+    val live: List<com.shizington.tv.data.db.LiveSessionEntity>,
+    val progress: List<ProgressEntity>,
+    val favourites: List<Stream>,
 )

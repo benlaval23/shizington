@@ -32,11 +32,21 @@ import com.shizington.tv.ui.main.TopBarHeight
 import com.shizington.tv.ui.navigation.AppNavigator
 import com.shizington.tv.ui.theme.AppColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.items
+import com.shizington.tv.data.tmdb.TmdbTitle
+import com.shizington.tv.ui.components.RowSection
+import com.shizington.tv.ui.newhot.ComingSoonCard
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 
-class FavouritesViewModel(c: AppContainer) : ViewModel() {
+class FavouritesViewModel(private val c: AppContainer) : ViewModel() {
     val favourites = c.library.favourites.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val watchlist = c.library.watchlist.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun removeFromWatchlist(key: String) {
+        viewModelScope.launch { c.library.removeFromWatchlist(key) }
+    }
     var restoreKey by mutableStateOf<String?>(null)
         private set
     private var lastFocus: String? = null
@@ -52,6 +62,7 @@ class FavouritesViewModel(c: AppContainer) : ViewModel() {
 fun FavouritesScreen(navigator: AppNavigator) {
     val vm = appViewModel { FavouritesViewModel(it) }
     val favourites by vm.favourites.collectAsStateWithLifecycle()
+    val watchlist by vm.watchlist.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
         vm.beginRestore()
         delay(1500)
@@ -59,11 +70,11 @@ fun FavouritesScreen(navigator: AppNavigator) {
     }
     val list = favourites ?: return
 
-    if (list.isEmpty()) {
+    if (list.isEmpty() && watchlist.isEmpty()) {
         Column(Modifier.padding(start = 48.dp, top = TopBarHeight + 32.dp)) {
-            Text("No favourites yet", style = MaterialTheme.typography.headlineSmall)
+            Text("Your list is empty", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Add movies and series from their detail page, or hold OK on a live channel.",
+                "Add movies and series from their detail page, hold OK on a card or live channel, or save something from Coming soon in New & Hot.",
                 color = AppColors.Muted,
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -77,7 +88,24 @@ fun FavouritesScreen(navigator: AppNavigator) {
         Triple("fav_series", "Series", list.filter { it.type == ContentType.SERIES }),
     )
     CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(34.dp)) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = TopBarHeight + 16.dp, bottom = 48.dp)) {
+        // Offset below the top bar with padding, not contentPadding, so D-pad down from the tabs reaches the rows.
+        LazyColumn(Modifier.fillMaxSize().padding(top = TopBarHeight), contentPadding = PaddingValues(top = 16.dp, bottom = 48.dp)) {
+            if (watchlist.isNotEmpty()) item(key = "watchlist") {
+                RowSection("Waiting for release  ·  OK to remove") {
+                    items(watchlist, key = { it.key }) { w ->
+                        ComingSoonCard(
+                            TmdbTitle(
+                                id = w.tmdbId, type = if (w.mediaType == "tv") ContentType.SERIES else ContentType.MOVIE,
+                                title = w.title, originalTitle = null, year = w.year, releaseDate = w.releaseDate,
+                                overview = null, poster = w.poster, backdrop = null, vote = 0.0, votes = 0, popularity = 0.0,
+                            ),
+                            onList = false,
+                            onClick = { vm.removeFromWatchlist(w.key) },
+                            onFocused = {},
+                        )
+                    }
+                }
+            }
             groups.forEach { (key, title, items) ->
                 if (items.isNotEmpty()) item(key = key) {
                     StreamRow(

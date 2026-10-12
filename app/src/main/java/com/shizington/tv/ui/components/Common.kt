@@ -267,5 +267,5 @@ fun formatDuration(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-private val clockFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+private val clockFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK)
 fun formatClock(ms: Long): String = synchronized(clockFormat) { clockFormat.format(java.util.Date(ms)) }

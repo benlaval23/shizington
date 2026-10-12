@@ -1,6 +1,7 @@
 package com.shizington.tv.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -109,7 +110,7 @@ fun PlaceholderRow(title: String, modifier: Modifier = Modifier, message: String
         Text(title, style = MaterialTheme.typography.titleMedium, color = AppColors.Muted, modifier = Modifier.padding(start = RowStartPadding, bottom = 8.dp))
         Box(Modifier.fillMaxWidth().height(170.dp).padding(start = RowStartPadding)) {
             if (message != null) Text(message, color = AppColors.Muted, style = MaterialTheme.typography.bodyMedium)
-            else Loader(Modifier.fillMaxWidth().height(170.dp))
+            else SkeletonScope { Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) { repeat(9) { SkeletonBlock(108.dp, 162.dp) } } }
         }
     }
 }

@@ -90,8 +90,18 @@ interface ProgressDao {
     suspend fun clear()
 }
 
-@Database(entities = [FavouriteEntity::class, ProgressEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [
+        FavouriteEntity::class, ProgressEntity::class,
+        ViewEventEntity::class, FeedbackEntity::class, LiveSessionEntity::class,
+        TmdbCacheEntity::class, TmdbMapEntity::class, WatchlistEntity::class,
+    ],
+    version = 2,
+    exportSchema = true,
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun favourites(): FavouriteDao
     abstract fun progress(): ProgressDao
+    abstract fun signals(): SignalsDao
+    abstract fun tmdb(): TmdbDao
 }

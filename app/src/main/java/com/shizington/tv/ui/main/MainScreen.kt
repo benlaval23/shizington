@@ -47,7 +47,7 @@ import com.shizington.tv.ui.theme.AppColors
 import kotlinx.coroutines.delay
 
 private enum class MainTab(val title: String) {
-    HOME("Home"), LIVE("Live TV"), MOVIES("Movies"), SERIES("Series"), SEARCH("Search"), FAVOURITES("Favourites"), SETTINGS("Settings")
+    HOME("Home"), NEW_HOT("New & Hot"), SPORT("Sport"), LIVE("Live TV"), MOVIES("Movies"), SERIES("Series"), SEARCH("Search"), FAVOURITES("My List"), SETTINGS("Settings")
 }
 
 val TopBarHeight = 56.dp
@@ -74,7 +74,9 @@ fun MainScreen(navigator: AppNavigator) {
     Box(Modifier.fillMaxSize().onFocusChanged { anythingFocused = it.hasFocus }) {
         Box(Modifier.fillMaxSize()) {
             when (tabs[selected]) {
-                MainTab.HOME -> BrowseScreen(BrowseMode.HOME, navigator)
+                MainTab.HOME -> com.shizington.tv.ui.home.HomeScreen(navigator)
+                MainTab.NEW_HOT -> com.shizington.tv.ui.newhot.NewHotScreen(navigator)
+                MainTab.SPORT -> com.shizington.tv.ui.sport.SportScreen(navigator)
                 MainTab.MOVIES -> BrowseScreen(BrowseMode.MOVIES, navigator)
                 MainTab.SERIES -> BrowseScreen(BrowseMode.SERIES, navigator)
                 MainTab.LIVE -> LiveScreen(navigator)
@@ -93,7 +95,7 @@ fun MainScreen(navigator: AppNavigator) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("ALICE TV", color = AppColors.Accent, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Spacer(Modifier.width(32.dp))
+            Spacer(Modifier.width(20.dp))
             TabRow(
                 selectedTabIndex = selected,
                 // Entering the tab row from below always lands on the selected tab, never a neighbour.
@@ -108,7 +110,7 @@ fun MainScreen(navigator: AppNavigator) {
                         onClick = { selected = index },
                         modifier = Modifier.focusRequester(tabRequesters[index]),
                     ) {
-                        Text(tab.title, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                        Text(tab.title, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp), maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -119,11 +121,13 @@ fun MainScreen(navigator: AppNavigator) {
                 Text(
                     when (daysLeft) {
                         0L -> "Expires today"
-                        1L -> "Expires tomorrow"
-                        else -> "Expires in $daysLeft days"
+                        1L -> "1 day left"
+                        else -> "$daysLeft days left"
                     },
                     color = AppColors.Rating,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }

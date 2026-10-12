@@ -33,9 +33,14 @@ class AppContainer(app: Application) {
     val xtream = XtreamRepository(httpClient, credentialsStore)
 
     val database: AppDatabase = Room.databaseBuilder(app, AppDatabase::class.java, "shizington.db")
-        .fallbackToDestructiveMigration()
+        // Real migrations keep favourites and watch history across upgrades.
+        .addMigrations(com.shizington.tv.data.db.MIGRATION_1_2)
+        .fallbackToDestructiveMigrationOnDowngrade()
         .build()
     val library = LibraryRepository(database)
+    val tmdb = com.shizington.tv.data.tmdb.TmdbRepository(httpClient, database.tmdb())
+    val sports = com.shizington.tv.data.sports.SportsRepository(xtream, httpClient, java.io.File(app.filesDir, "sport_feed.json"))
+    val recommendations = com.shizington.tv.data.reco.RecommendationEngine(xtream, tmdb, library)
 
     /** What the player screen should open next; set right before navigating to it. */
     @Volatile
@@ -55,6 +60,11 @@ class ShizingtonApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // The household, provider and fixtures are all in the UK, but Fire TVs often ship with a US time zone
+        // (this one was on America/Vancouver), which put kick-offs and the guide 8 hours out. Show UK time
+        // regardless of how the device is set up. (Date formats pass Locale.UK themselves: Android resets the
+        // default locale from the device settings whenever an activity starts.)
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Europe/London"))
         container = AppContainer(this)
     }
 

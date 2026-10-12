@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.live
 
+import com.shizington.tv.ui.components.SkeletonList
 import android.view.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -218,7 +219,7 @@ fun LiveScreen(navigator: AppNavigator) {
 
     Row(Modifier.fillMaxSize().padding(top = TopBarHeight + 8.dp)) {
         when (val cats = vm.categories) {
-            ListState.Loading -> Loader(Modifier.fillMaxSize())
+            ListState.Loading -> SkeletonList(Modifier.padding(start = 48.dp, top = 16.dp))
             is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 ErrorMessage(cats.message, onRetry = vm::loadCategories)
             }
@@ -227,7 +228,7 @@ fun LiveScreen(navigator: AppNavigator) {
                 Column(Modifier.weight(1f).fillMaxHeight().padding(end = 32.dp)) {
                     GridHeader()
                     when (val ch = vm.channels) {
-                        ListState.Loading -> Loader(Modifier.fillMaxSize())
+                        ListState.Loading -> SkeletonList(Modifier.padding(top = 8.dp))
                         is ListState.Failed -> ErrorMessage(ch.message, onRetry = { vm.selectedCategory?.let(vm::showCategory) })
                         is ListState.Ready -> if (ch.value.isEmpty()) {
                             Text(

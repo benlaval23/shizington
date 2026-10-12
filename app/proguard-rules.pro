@@ -15,3 +15,11 @@
 # Tink (security-crypto)
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
+
+# Sport feed is saved to disk with Gson, which reads these classes' fields by reflection.
+-keep class com.shizington.tv.data.sports.** { <fields>; }
+-keep class com.shizington.tv.data.model.Stream { <fields>; }
+-keep class com.shizington.tv.data.model.ChannelGroup { <fields>; }
+-keep class com.shizington.tv.data.model.EpgEntry { <fields>; }
+-keep enum com.shizington.tv.data.model.ContentType { *; }
+-keep enum com.shizington.tv.data.sports.SportTopic { *; }

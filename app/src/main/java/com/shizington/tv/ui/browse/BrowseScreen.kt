@@ -1,5 +1,6 @@
 package com.shizington.tv.ui.browse
 
+import com.shizington.tv.ui.components.SkeletonRows
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import com.shizington.tv.ui.theme.AppColors
 import androidx.compose.ui.graphics.Brush
@@ -284,7 +285,7 @@ fun BrowseScreen(mode: BrowseMode, navigator: AppNavigator) {
     Column(Modifier.fillMaxSize()) {
         HeroBanner(vm.hero, Modifier.fillMaxWidth().height(268.dp))
         when (val rows = vm.rows) {
-            ListState.Loading -> Loader(Modifier.fillMaxSize())
+            ListState.Loading -> SkeletonRows(rows = 3)
             is ListState.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 ErrorMessage(rows.message, onRetry = vm::loadRows)
             }
