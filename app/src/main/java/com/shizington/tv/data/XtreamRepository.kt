@@ -247,6 +247,8 @@ class XtreamRepository(
                     added = m["added"]?.toLongId() ?: 0,
                     trailer = m["youtube_trailer"].nullIfBlank(),
                     hasCast = !m["cast"].isNullOrBlank(),
+                    people = people(m),
+                    runtimeMin = m["episode_run_time"]?.toIntOrNull()?.takeIf { it > 0 },
                 )
                 else -> Stream(
                     type = ContentType.SERIES,
@@ -263,6 +265,8 @@ class XtreamRepository(
                     added = m["last_modified"]?.toLongId() ?: 0,
                     trailer = m["youtube_trailer"].nullIfBlank(),
                     hasCast = !m["cast"].isNullOrBlank(),
+                    people = people(m),
+                    runtimeMin = m["episode_run_time"]?.toIntOrNull()?.takeIf { it > 0 },
                 )
             }
         }
@@ -271,24 +275,32 @@ class XtreamRepository(
     private fun displayTitle(m: Map<String, String>): String =
         (m["title"].nullIfBlank() ?: m["name"]).orEmpty().trim()
 
+    private fun people(m: Map<String, String>): String? =
+        listOfNotNull(m["director"].nullIfBlank(), m["cast"].nullIfBlank()).joinToString(", ").nullIfBlank()
+
     private fun year(m: Map<String, String>): String? =
         (m["year"].nullIfBlank() ?: m["releaseDate"].nullIfBlank() ?: m["release_date"].nullIfBlank())
             ?.take(4)?.takeIf { it.all(Char::isDigit) }
 
-    suspend fun search(query: String, type: ContentType, limit: Int = 60): List<Stream> {
-        val q = query.trim()
-        if (q.isEmpty()) return emptyList()
+    private val searchIndexes = java.util.concurrent.ConcurrentHashMap<ContentType, com.shizington.tv.data.search.SearchIndex>()
+
+    private suspend fun searchIndex(type: ContentType): com.shizington.tv.data.search.SearchIndex {
         val all = allStreams(type)
-        return withContext(Dispatchers.Default) {
-            val starts = ArrayList<Stream>()
-            val contains = ArrayList<Stream>()
-            for (s in all) {
-                val idx = s.name.indexOf(q, ignoreCase = true)
-                if (idx == 0) starts += s else if (idx > 0) contains += s
-                if (starts.size >= limit) break
-            }
-            (starts + contains).take(limit)
-        }
+        searchIndexes[type]?.takeIf { it.source.size == all.size && it.source.firstOrNull()?.id == all.firstOrNull()?.id }?.let { return it }
+        return withContext(Dispatchers.Default) { com.shizington.tv.data.search.SearchIndex(all) }.also { searchIndexes[type] = it }
+    }
+
+    suspend fun search(query: String, type: ContentType, limit: Int = 60): List<Stream> {
+        if (query.isBlank()) return emptyList()
+        val index = searchIndex(type)
+        return withContext(Dispatchers.Default) { index.titles(query, limit) }
+    }
+
+    /** Films and series featuring a person, from the cast/director fields the provider sends. */
+    suspend fun searchByPerson(query: String, type: ContentType): com.shizington.tv.data.search.PersonMatch? {
+        if (query.isBlank()) return null
+        val index = searchIndex(type)
+        return withContext(Dispatchers.Default) { index.byPerson(query) }
     }
 
     // ---- Details ----
@@ -317,6 +329,8 @@ class XtreamRepository(
             trailer = info?.str("youtube_trailer"),
             country = info?.str("country"),
             ageRating = info?.str("mpaa_rating", "age"),
+            tmdbId = info?.str("tmdb_id")?.toLongId()?.takeIf { it > 0 },
+            bitrateKbps = info?.str("bitrate")?.toIntOrNull()?.takeIf { it > 0 },
         )
     }
 

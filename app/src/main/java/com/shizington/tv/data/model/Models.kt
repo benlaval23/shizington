@@ -52,6 +52,9 @@ data class Stream(
     /** Live channels: days of catch-up the provider keeps, 0 when none. */
     val archiveDays: Int = 0,
     val hasCast: Boolean = false,
+    /** Director and cast, comma separated (for search and taste matching). */
+    val people: String? = null,
+    val runtimeMin: Int? = null,
 ) {
     val key: String get() = "${type.name}:$id"
     val ratingValue: Double get() = rating?.toDoubleOrNull() ?: 0.0
@@ -75,6 +78,9 @@ data class MovieInfo(
     val trailer: String? = null,
     val country: String? = null,
     val ageRating: String? = null,
+    val tmdbId: Long? = null,
+    /** Average bitrate in kbps as reported by the provider; very low values mean a poor copy. */
+    val bitrateKbps: Int? = null,
 )
 
 data class SeriesInfo(

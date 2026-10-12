@@ -15,8 +15,8 @@ val keystoreProps = Properties().apply {
 fun signingValue(env: String, prop: String): String? =
     System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(prop)
 
-// Developer convenience only: debug builds prefill the server fields from local.properties (gitignored).
-// Credentials are never read into the build; users always sign in on the login screen.
+// local.properties (gitignored): debug builds prefill the server fields, and the TMDB token is read from it.
+// Provider credentials are never read into the build; users always sign in on the login screen.
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -36,6 +36,9 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
+        // TMDB read-only token (catalogue artwork, release dates, recommendations). From local.properties
+        // (gitignored) or the TMDB_TOKEN env var in CI; when empty the app simply skips TMDB features.
+        buildConfigField("String", "TMDB_TOKEN", quoted(System.getenv("TMDB_TOKEN") ?: localProps.getProperty("tmdb.token")))
     }
 
     signingConfigs {
@@ -68,6 +71,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // java.time on Fire OS 5 (API 22) devices.
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -87,7 +92,12 @@ android {
 }
 
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -133,7 +133,32 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
             .apply { playWhenReady = true }
     }
 
+    // ---- Viewing signals (what was watched and for how long), recorded when an item ends or is switched ----
+
+    private var sessionItem: Playable? = null
+    private var sessionWallStart = 0L
+
+    /** Records the item that was playing before the player moves on (or closes). */
+    private fun closeSession() {
+        val p = sessionItem ?: return
+        sessionItem = null
+        val dur = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        val pos = player.currentPosition
+        val wallStart = sessionWallStart
+        val programme = epg.firstOrNull { it.startMs <= System.currentTimeMillis() && it.endMs > System.currentTimeMillis() }?.title
+        @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+        kotlinx.coroutines.GlobalScope.launch {
+            when {
+                p.type == ContentType.LIVE -> c.library.logLive(p.name, p.id, p.programme ?: programme, wallStart)
+                dur > 0 -> c.library.logView(p, pos, dur)
+            }
+        }
+    }
+
     private fun play(p: Playable, startMs: Long) {
+        closeSession()
+        sessionItem = p
+        sessionWallStart = System.currentTimeMillis()
         renderedFirstFrame = false
         error = null
         epg = emptyList()
@@ -380,6 +405,7 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
     }
 
     override fun onCleared() {
+        closeSession()
         val p = current
         val dur = player.duration
         val pos = player.currentPosition

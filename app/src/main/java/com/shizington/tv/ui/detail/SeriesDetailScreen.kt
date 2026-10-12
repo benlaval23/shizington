@@ -48,6 +48,10 @@ import com.shizington.tv.data.model.Episode
 import com.shizington.tv.data.model.PlaybackRequest
 import com.shizington.tv.data.model.Playable
 import com.shizington.tv.data.model.SeriesInfo
+import com.shizington.tv.data.reco.DetailExtras
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.shizington.tv.data.model.Stream
 import com.shizington.tv.data.model.formatRating
 import com.shizington.tv.ui.browse.ListState
@@ -101,6 +105,10 @@ class SeriesDetailViewModel(private val id: Long, private val c: AppContainer) :
     val isFavourite = c.library.isFavourite(ContentType.SERIES, id).stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val progress = c.library.seriesProgress(id).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     var lastPlayedEpisode: Long? = null
+    var extras by mutableStateOf<DetailExtras?>(null)
+        private set
+    var similar by mutableStateOf<List<Stream>>(emptyList())
+        private set
 
     init { load() }
 
@@ -112,6 +120,12 @@ class SeriesDetailViewModel(private val id: Long, private val c: AppContainer) :
                 // Open on the season the viewer is in.
                 val nextUp = computeNextUp(s, progress.value)
                 if (nextUp != null) selectedSeason = s.seasons.indexOfFirst { it.number == nextUp.episode.season }.coerceAtLeast(0)
+                launch {
+                    extras = runCatching { c.recommendations.detailExtras(ContentType.SERIES, id, s.name, s.releaseDate?.take(4)?.toIntOrNull(), null) }.getOrNull()
+                    if (extras?.moreLikeThis.orEmpty().size < 4) {
+                        similar = runCatching { c.xtream.similar(ContentType.SERIES, id, s.genre) }.getOrDefault(emptyList())
+                    }
+                }
                 ListState.Ready(s)
             } catch (e: Exception) {
                 ListState.Failed(e.message ?: "Couldn't load this series")
@@ -156,20 +170,29 @@ private fun SeriesDetailContent(series: SeriesInfo, vm: SeriesDetailViewModel, n
         navigator.play(PlaybackRequest(listOf(ep.toPlayable(series)), 0, positionMs))
     }
 
+    val d = vm.extras?.details
+    val trailer = series.trailer?.takeIf { youTubeId(it) != null } ?: trailerUrl(d?.trailerKey)
+
     Box(Modifier.fillMaxSize()) {
-        Backdrop(series.backdrop ?: series.cover)
-        Column(Modifier.fillMaxSize().padding(top = 36.dp)) {
-            Column(Modifier.padding(start = 48.dp).width(580.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("SERIES", style = MaterialTheme.typography.labelMedium, color = AppColors.Accent)
-                Text(series.name, style = MaterialTheme.typography.displaySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                MetaRow(
-                    listOfNotNull(
-                        series.releaseDate?.take(4),
-                        formatRating(series.rating),
-                        "${series.seasons.size} season" + if (series.seasons.size == 1) "" else "s",
-                        series.genre,
-                    ),
-                )
+        Backdrop(d?.backdrop ?: series.backdrop ?: series.cover)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 36.dp)) {
+            Column(Modifier.padding(start = 48.dp).width(600.dp).heightIn(min = 300.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(listOfNotNull("SERIES", d?.network?.uppercase()).joinToString("  ·  "), style = MaterialTheme.typography.labelMedium, color = AppColors.Accent)
+                DetailTitle(series.name, d?.logo, height = 80.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    d?.certification?.let { CertBadge(it) }
+                    MetaRow(
+                        listOfNotNull(
+                            series.releaseDate?.take(4),
+                            formatRating(series.rating),
+                            "${series.seasons.size} season" + if (series.seasons.size == 1) "" else "s",
+                            series.genre,
+                        ),
+                    )
+                }
+                seriesStatus(d)?.let { (text, highlight) ->
+                    Text(text, style = MaterialTheme.typography.labelLarge, color = if (highlight) AppColors.Rating else AppColors.Muted)
+                }
                 val ep = focusedEpisode
                 if (ep != null) {
                     Text("S${ep.season}E${ep.episodeNum} · ${ep.title}", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -184,17 +207,17 @@ private fun SeriesDetailContent(series: SeriesInfo, vm: SeriesDetailViewModel, n
                             playEpisode(nextUp.episode, nextUp.positionMs)
                         })
                     }
-                    if (youTubeId(series.trailer) != null) {
-                        ActionButton("Trailer", ActionIcon.Trailer, onClick = { openTrailer(context, series.trailer) })
+                    if (trailer != null) {
+                        ActionButton("Trailer", ActionIcon.Trailer, onClick = { openTrailer(context, trailer) })
                     }
                     ActionButton(
-                        text = if (favourite) "In favourites" else "Add to favourites",
+                        text = if (favourite) "On My List" else "My List",
                         icon = if (favourite) ActionIcon.Favourite else ActionIcon.NotFavourite,
                         onClick = { vm.toggleFavourite(series) },
                     )
                 }
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(12.dp))
             if (series.seasons.isEmpty()) {
                 Text("No episodes available.", color = AppColors.Muted, modifier = Modifier.padding(start = 48.dp, bottom = 48.dp))
             } else {
@@ -233,7 +256,26 @@ private fun SeriesDetailContent(series: SeriesInfo, vm: SeriesDetailViewModel, n
                     }
                 }
             }
+            ExtrasSections(vm.extras, navigator, vm.similar)
         }
+    }
+}
+
+/** "New episode Fri 17 Oct", "Returning series", "Ended" from TMDB. */
+private fun seriesStatus(d: com.shizington.tv.data.tmdb.TmdbDetails?): Pair<String, Boolean>? {
+    d ?: return null
+    d.nextEpisodeDate?.let { date ->
+        val pretty = runCatching {
+            val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(date)!!
+            java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.UK).format(day)
+        }.getOrDefault(date)
+        return "Next episode $pretty" + (d.nextEpisodeLabel?.let { " · $it" } ?: "") to true
+    }
+    return when (d.status) {
+        "Ended" -> "Ended" + (d.lastAirDate?.take(4)?.let { " in $it" } ?: "") to false
+        "Canceled" -> "Cancelled" to false
+        "Returning Series" -> "Returning series" to false
+        else -> null
     }
 }
 

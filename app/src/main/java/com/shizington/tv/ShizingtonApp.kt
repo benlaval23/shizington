@@ -33,9 +33,14 @@ class AppContainer(app: Application) {
     val xtream = XtreamRepository(httpClient, credentialsStore)
 
     val database: AppDatabase = Room.databaseBuilder(app, AppDatabase::class.java, "shizington.db")
-        .fallbackToDestructiveMigration()
+        // Real migrations keep favourites and watch history across upgrades.
+        .addMigrations(com.shizington.tv.data.db.MIGRATION_1_2)
+        .fallbackToDestructiveMigrationOnDowngrade()
         .build()
     val library = LibraryRepository(database)
+    val tmdb = com.shizington.tv.data.tmdb.TmdbRepository(httpClient, database.tmdb())
+    val sports = com.shizington.tv.data.sports.SportsRepository(xtream, httpClient)
+    val recommendations = com.shizington.tv.data.reco.RecommendationEngine(xtream, tmdb, library)
 
     /** What the player screen should open next; set right before navigating to it. */
     @Volatile
