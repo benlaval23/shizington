@@ -23,6 +23,9 @@ import com.shizington.tv.data.model.Season
 import com.shizington.tv.data.model.SeriesInfo
 import com.shizington.tv.data.model.Stream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -75,7 +78,13 @@ class XtreamRepository(
     /** The server currently in use, which stream URLs are built from too. */
     val activeServer: String? get() = apis.getOrNull(activeIndex)?.first ?: credentials?.server
 
-    private val categories = AsyncCache<ContentType, List<Category>>()
+    private val _account = MutableStateFlow<AccountInfo?>(null)
+
+    /** Latest account details from sign-in (expiry, connection limit, provider timezone). */
+    val account: StateFlow<AccountInfo?> = _account.asStateFlow()
+
+    private val rawCategories = AsyncCache<ContentType, List<Category>>()
+    private val adultCategoryIds = ConcurrentHashMap<ContentType, Set<String>>()
     private val streamsByCategory = AsyncCache<String, List<Stream>>()
     private val allStreams = AsyncCache<ContentType, List<Stream>>()
     private val movieInfos = AsyncCache<Long, MovieInfo>()
@@ -97,7 +106,8 @@ class XtreamRepository(
     }
 
     fun clearCache() {
-        categories.clear()
+        rawCategories.clear()
+        adultCategoryIds.clear()
         streamsByCategory.clear()
         allStreams.clear()
         movieInfos.clear()
@@ -145,6 +155,7 @@ class XtreamRepository(
             throw AuthException("Account status: $status")
         }
         return AccountInfo(
+            timezone = root.get("server_info").asObj()?.str("timezone"),
             status = status,
             expiresAt = user.str("exp_date")?.toLongId()?.times(1000),
             isTrial = user.str("is_trial") == "1",
@@ -152,12 +163,12 @@ class XtreamRepository(
             maxConnections = user.str("max_connections")?.toIntOrNull(),
             allowedFormats = user.get("allowed_output_formats").asArr()
                 ?.mapNotNull { if (it.isJsonPrimitive) it.asString else null }.orEmpty(),
-        )
+        ).also { _account.value = it }
     }
 
     // ---- Catalogue ----
 
-    suspend fun categories(type: ContentType): List<Category> = categories.get(type) {
+    private suspend fun loadCategories(type: ContentType): List<Category> = rawCategories.get(type) {
         val action = when (type) {
             ContentType.LIVE -> "get_live_categories"
             ContentType.MOVIE -> "get_vod_categories"
@@ -169,11 +180,28 @@ class XtreamRepository(
                 Category(id, m["category_name"]?.trim().orEmpty().ifEmpty { "Uncategorised" })
             }
         }
+    }.also { list ->
+        adultCategoryIds[type] = list.filter { isAdultName(it.name) }.map { it.id }.toSet()
+    }
+
+    /** Categories, minus adult ones unless the viewer has unlocked them in Settings. */
+    suspend fun categories(type: ContentType): List<Category> {
+        val all = loadCategories(type)
+        return if (store.showAdult) all else all.filter { !isAdultName(it.name) }
+    }
+
+    private fun isAdultName(name: String) = ADULT.containsMatchIn(name)
+
+    private suspend fun hideAdult(type: ContentType, list: List<Stream>): List<Stream> {
+        if (store.showAdult) return list
+        loadCategories(type)
+        val ids = adultCategoryIds[type].orEmpty()
+        return list.filter { it.categoryId !in ids && !it.name.startsWith("XXX", ignoreCase = true) }
     }
 
     /** Streams for one category; served from the full list when that is already loaded. */
     suspend fun streams(type: ContentType, categoryId: String): List<Stream> {
-        allStreams.peek(type)?.let { all -> return all.filter { it.categoryId == categoryId } }
+        allStreams.peek(type)?.let { all -> return hideAdult(type, all.filter { it.categoryId == categoryId }) }
         return streamsByCategory.get("${type.name}:$categoryId") {
             val loaded = request(streamsAction(type), mapOf("category_id" to categoryId)) { parseStreams(type, it) }
             // Some panels ignore category_id and return everything.
@@ -181,9 +209,9 @@ class XtreamRepository(
         }
     }
 
-    suspend fun allStreams(type: ContentType): List<Stream> = allStreams.get(type) {
+    suspend fun allStreams(type: ContentType): List<Stream> = hideAdult(type, allStreams.get(type) {
         request(streamsAction(type)) { parseStreams(type, it) }
-    }
+    })
 
     private fun streamsAction(type: ContentType) = when (type) {
         ContentType.LIVE -> "get_live_streams"
@@ -202,6 +230,7 @@ class XtreamRepository(
                     categoryId = m["category_id"],
                     num = m["num"]?.toIntOrNull(),
                     epgChannelId = m["epg_channel_id"].nullIfBlank(),
+                    archiveDays = if (m["tv_archive"] == "1") m["tv_archive_duration"]?.toIntOrNull() ?: 0 else 0,
                 )
                 ContentType.MOVIE -> Stream(
                     type = ContentType.MOVIE,
@@ -215,6 +244,9 @@ class XtreamRepository(
                     plot = m["plot"].nullIfBlank(),
                     year = year(m),
                     genre = m["genre"].nullIfBlank(),
+                    added = m["added"]?.toLongId() ?: 0,
+                    trailer = m["youtube_trailer"].nullIfBlank(),
+                    hasCast = !m["cast"].isNullOrBlank(),
                 )
                 else -> Stream(
                     type = ContentType.SERIES,
@@ -228,6 +260,9 @@ class XtreamRepository(
                     backdrop = m["backdrop_path"].nullIfBlank(),
                     year = year(m),
                     genre = m["genre"].nullIfBlank(),
+                    added = m["last_modified"]?.toLongId() ?: 0,
+                    trailer = m["youtube_trailer"].nullIfBlank(),
+                    hasCast = !m["cast"].isNullOrBlank(),
                 )
             }
         }
@@ -279,6 +314,9 @@ class XtreamRepository(
                 ?: info?.str("duration")?.takeUnless { it.all { c -> c == '0' || c == ':' } },
             extension = data?.str("container_extension")?.lowercase() ?: "mp4",
             categoryId = data?.str("category_id"),
+            trailer = info?.str("youtube_trailer"),
+            country = info?.str("country"),
+            ageRating = info?.str("mpaa_rating", "age"),
         )
     }
 
@@ -322,6 +360,8 @@ class XtreamRepository(
                     ?.let { "Season $num · $it" } ?: "Season $num",
                 cover = meta?.str("cover_big", "cover"),
                 episodes = eps.sortedBy { it.episodeNum },
+                overview = meta?.str("overview"),
+                airDate = meta?.str("air_date"),
             )
         }
 
@@ -337,6 +377,7 @@ class XtreamRepository(
             releaseDate = info?.str("releaseDate", "release_date"),
             rating = info?.str("rating"),
             seasons = seasons,
+            trailer = info?.str("youtube_trailer"),
         )
     }
 
@@ -354,6 +395,66 @@ class XtreamRepository(
         val h = secs / 3600
         val m = (secs % 3600) / 60
         return if (h > 0) "${h}h ${m}m" else "${m}m"
+    }
+
+    // ---- Curated rows (built from the full catalogue, which is cached after the first load) ----
+
+    suspend fun recentlyAdded(type: ContentType, limit: Int = 40): List<Stream> =
+        allStreams(type).sortedByDescending { it.added }.take(limit)
+
+    /**
+     * Ratings come without vote counts, so the 10/10s are obscure titles with a handful of votes.
+     * Real top films sit around 7.3–8.6, so keep that band from recent years, with real metadata.
+     */
+    suspend fun topRated(type: ContentType, limit: Int = 40): List<Stream> {
+        val minYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) - 7
+        return withContext(Dispatchers.Default) {
+            allStreams(type)
+                .filter { it.ratingValue in 7.3..8.6 && (it.year?.toIntOrNull() ?: 0) >= minYear && it.plot != null && it.hasCast }
+                .sortedWith(compareByDescending<Stream> { it.ratingValue }.thenByDescending { it.added })
+                .take(limit)
+        }
+    }
+
+    /** The most common genres, for genre rows. */
+    suspend fun topGenres(type: ContentType, count: Int): List<String> = withContext(Dispatchers.Default) {
+        allStreams(type).flatMap { it.genres }.groupingBy { it }.eachCount()
+            .entries.sortedByDescending { it.value }.take(count).map { it.key }
+    }
+
+    /** Newer, decently rated titles first. */
+    suspend fun byGenre(type: ContentType, genre: String, limit: Int = 60): List<Stream> = withContext(Dispatchers.Default) {
+        allStreams(type).filter { genre in it.genres }
+            .sortedWith(compareByDescending<Stream> { it.ratingValue >= 6.0 }.thenByDescending { it.year }.thenByDescending { it.ratingValue })
+            .take(limit)
+    }
+
+    /** "More like this": titles sharing the most genres, then the best rated. */
+    suspend fun similar(type: ContentType, id: Long, genre: String?, limit: Int = 20): List<Stream> = withContext(Dispatchers.Default) {
+        val wanted = genre?.split(',', '/', '&')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+        if (wanted.isEmpty()) return@withContext emptyList()
+        allStreams(type).asSequence()
+            .filter { it.id != id && it.ratingValue >= 6.0 }
+            .map { it to it.genres.count { g -> g in wanted } }
+            .filter { it.second > 0 }
+            .sortedWith(compareByDescending<Pair<Stream, Int>> { it.second }.thenByDescending { it.first.ratingValue })
+            .take(limit).map { it.first }.toList()
+    }
+
+    // ---- Catch-up ----
+
+    /** Past programmes the provider has recordings of, newest first. */
+    suspend fun catchUp(streamId: Long): List<EpgEntry> {
+        val now = System.currentTimeMillis()
+        val root = requestJson("get_simple_data_table", mapOf("stream_id" to streamId.toString()))
+        return root.asObj()?.get("epg_listings").asArr()?.mapNotNull { el ->
+            val o = el.asObj() ?: return@mapNotNull null
+            if (o.str("has_archive") != "1") return@mapNotNull null
+            val start = o.str("start_timestamp")?.toLongId()?.times(1000) ?: return@mapNotNull null
+            val end = o.str("stop_timestamp", "end_timestamp")?.toLongId()?.times(1000) ?: return@mapNotNull null
+            if (start > now) return@mapNotNull null
+            EpgEntry(decode(o.str("title")).ifBlank { "Programme" }, decode(o.str("description")).nullIfBlank(), start, end, hasArchive = true)
+        }.orEmpty().sortedByDescending { it.startMs }
     }
 
     fun cachedMovieInfo(id: Long): MovieInfo? = movieInfos.peek(id)
@@ -398,6 +499,13 @@ class XtreamRepository(
         val base = (activeServer ?: c.server).trimEnd('/')
         val user = Uri.encode(c.username)
         val pass = Uri.encode(c.password)
+        if (p.isCatchUp) {
+            // Xtream expects the start in the provider's own timezone, as yyyy-MM-dd:HH-mm.
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone(_account.value?.timezone ?: "UTC")
+            }
+            return "$base/timeshift/$user/$pass/${p.archiveMinutes ?: 60}/${fmt.format(java.util.Date(p.archiveStartMs!!))}/${p.id}.ts"
+        }
         return when (p.type) {
             ContentType.LIVE -> "$base/live/$user/$pass/${p.id}.${store.liveFormat}"
             ContentType.MOVIE -> "$base/movie/$user/$pass/${p.id}.${p.extension ?: "mp4"}"
@@ -407,6 +515,8 @@ class XtreamRepository(
     }
 
     companion object {
+        private val ADULT = Regex("""(?i)\b(xxx|adult|porn)\b|18\+""")
+
         /** Accepts "host:port", "http://host:port/", or a pasted player_api.php URL. */
         fun normalizeServer(input: String): String {
             var s = input.trim()

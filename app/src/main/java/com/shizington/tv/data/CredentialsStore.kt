@@ -42,6 +42,7 @@ class CredentialsStore(context: Context) {
 
     fun clear() {
         prefs.edit().clear().apply()
+        settings.edit().putBoolean(KEY_SHOW_ADULT, false).apply()
     }
 
     val lastAccountKey: String? get() = settings.getString(KEY_LAST_ACCOUNT, null)
@@ -51,6 +52,21 @@ class CredentialsStore(context: Context) {
         get() = settings.getString(KEY_LIVE_FORMAT, "ts") ?: "ts"
         set(value) = settings.edit().putString(KEY_LIVE_FORMAT, value).apply()
 
+    /** Adult categories stay hidden until unlocked with the PIN. */
+    var showAdult: Boolean
+        get() = settings.getBoolean(KEY_SHOW_ADULT, false)
+        set(value) = settings.edit().putBoolean(KEY_SHOW_ADULT, value).apply()
+
+    /** Kept with the credentials in encrypted storage. */
+    var adultPin: String?
+        get() = prefs.getString(KEY_ADULT_PIN, null)
+        set(value) = prefs.edit().putString(KEY_ADULT_PIN, value).apply()
+
+    /** Live channel quality when a channel comes in several: "best", "hd" or "sd". */
+    var preferredQuality: String
+        get() = settings.getString(KEY_QUALITY, "best") ?: "best"
+        set(value) = settings.edit().putString(KEY_QUALITY, value).apply()
+
     private companion object {
         const val KEY_SERVER = "server"
         const val KEY_USER = "username"
@@ -58,5 +74,8 @@ class CredentialsStore(context: Context) {
         const val KEY_BACKUPS = "backup_servers"
         const val KEY_LAST_ACCOUNT = "last_account"
         const val KEY_LIVE_FORMAT = "live_format"
+        const val KEY_SHOW_ADULT = "show_adult"
+        const val KEY_ADULT_PIN = "adult_pin"
+        const val KEY_QUALITY = "preferred_quality"
     }
 }

@@ -5,6 +5,9 @@ IPTV player for Fire TV / Android TV. Built with Kotlin, Compose for TV, Media3 
 - Signs in with an Xtream Codes account (`player_api.php`). Credentials are entered on the login screen and stored encrypted on the device, never in code.
 - Backup servers: if the main server is unreachable, the app moves to the next one and stays on whichever server answers.
 - Home, Live TV (now/next EPG), Movies, Series, Search, Favourites and Settings tabs, plus detail pages and Continue Watching.
+- Catch-up TV and "Start over" on channels the provider records; channels offered in several qualities appear once with a quality switch.
+- New movies, New episodes, Highly rated and genre rows; trailers and "More like this" on movie pages.
+- Adult categories are hidden until unlocked with a PIN in Settings; a warning appears a week before the subscription expires.
 - The player handles MPEG-TS and HLS, resumes where you left off, and has audio/subtitle pickers. Live TV supports channel up/down.
 
 ## Local setup (macOS)
@@ -57,12 +60,13 @@ Or from the terminal:
 
 | Where | Key | Action |
 |---|---|---|
-| Anywhere | Hold OK on a live channel | Add or remove favourite |
+| Live TV list | Hold OK on a channel | Add or remove favourite |
+| Live TV list | ≡ Menu on a channel | Catch-up: past programmes from the last few days |
 | Movie/episode player | ◀ ▶ | Seek 10 s |
 | Movie/episode player | OK | Show controls (play/pause, audio, subtitles, next episode) |
 | Live player | ▲ ▼ / CH+ CH− | Change channel |
 | Live player | ◀ | Channel list |
-| Live player | OK | Channel info with now/next |
+| Live player | OK | Channel info with now/next, plus Start over, Catch-up and Quality buttons |
 | Player | Menu | Audio tracks |
 
 ## Release builds (GitHub Actions)
