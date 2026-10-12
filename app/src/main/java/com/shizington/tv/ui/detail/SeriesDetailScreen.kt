@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -143,6 +144,7 @@ private fun SeriesDetailContent(series: SeriesInfo, vm: SeriesDetailViewModel, n
     val nextUp = remember(series, progress) { computeNextUp(series, progress) }
     var focusedEpisode by remember { mutableStateOf<Episode?>(null) }
     val playFocus = remember { FocusRequester() }
+    val context = LocalContext.current
     val restoreEpisode = remember { vm.lastPlayedEpisode }
     LaunchedEffect(Unit) {
         val season = series.seasons.getOrNull(vm.selectedSeason)
@@ -181,6 +183,9 @@ private fun SeriesDetailContent(series: SeriesInfo, vm: SeriesDetailViewModel, n
                         ActionButton(nextUp.label, ActionIcon.Play, primary = true, modifier = Modifier.focusRequester(playFocus), onClick = {
                             playEpisode(nextUp.episode, nextUp.positionMs)
                         })
+                    }
+                    if (youTubeId(series.trailer) != null) {
+                        ActionButton("Trailer", ActionIcon.Trailer, onClick = { openTrailer(context, series.trailer) })
                     }
                     ActionButton(
                         text = if (favourite) "In favourites" else "Add to favourites",
@@ -253,7 +258,9 @@ private fun SeasonTabs(series: SeriesInfo, selected: Int, onSelect: (Int) -> Uni
                         focusedContentColor = Color.Black,
                     ),
                 ) {
-                    Text(series.seasons[index].name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    val season = series.seasons[index]
+                    val year = season.airDate?.take(4)?.takeIf { it.all(Char::isDigit) }
+                    Text(season.name + (year?.let { " · $it" } ?: ""), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                 }
             }
         }

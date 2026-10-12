@@ -17,6 +17,7 @@ import com.shizington.tv.data.model.PlaybackRequest
 import com.shizington.tv.ui.components.appContainer
 import com.shizington.tv.ui.detail.MovieDetailScreen
 import com.shizington.tv.ui.detail.SeriesDetailScreen
+import com.shizington.tv.ui.live.CatchUpScreen
 import com.shizington.tv.ui.login.LoginScreen
 import com.shizington.tv.ui.login.SplashScreen
 import com.shizington.tv.ui.main.MainScreen
@@ -26,6 +27,9 @@ import com.shizington.tv.ui.player.PlayerScreen
 class AppNavigator(private val nav: NavHostController, private val container: AppContainer) {
     fun openMovie(id: Long) = nav.navigate("movie/$id") { launchSingleTop = true }
     fun openSeries(id: Long) = nav.navigate("series/$id") { launchSingleTop = true }
+
+    fun openCatchUp(streamId: Long, name: String, icon: String?) =
+        nav.navigate("catchup/$streamId?name=${Uri.encode(name)}&icon=${Uri.encode(icon.orEmpty())}") { launchSingleTop = true }
 
     fun play(request: PlaybackRequest) {
         container.pendingPlayback = request
@@ -67,6 +71,17 @@ fun AppNavHost() {
         }
         composable("series/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
             SeriesDetailScreen(entry.arguments!!.getLong("id"), navigator)
+        }
+        composable(
+            "catchup/{id}?name={name}&icon={icon}",
+            arguments = listOf(
+                navArgument("id") { type = NavType.LongType },
+                navArgument("name") { type = NavType.StringType; defaultValue = "" },
+                navArgument("icon") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val args = entry.arguments!!
+            CatchUpScreen(args.getLong("id"), args.getString("name").orEmpty(), args.getString("icon")?.ifEmpty { null }, navigator)
         }
         composable("player") { PlayerScreen(navigator) }
     }

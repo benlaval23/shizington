@@ -97,11 +97,18 @@ fun PlayerScreen(navigator: AppNavigator) {
     }
     val app = LocalContext.current.applicationContext as Application
     val vm = appViewModel { PlayerViewModel(app, it, request) }
-    PlayerContent(vm, onExit = { navigator.back() })
+    PlayerContent(
+        vm,
+        onExit = { navigator.back() },
+        onCatchUp = {
+            val p = vm.current
+            p.archiveStreamId?.let { navigator.openCatchUp(it, p.name, p.icon) }
+        },
+    )
 }
 
 @Composable
-private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit) {
+private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit, onCatchUp: () -> Unit) {
     var overlay by remember { mutableStateOf(Overlay.CONTROLS) }
     var trackType by remember { mutableStateOf<Int?>(null) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -167,6 +174,13 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit) {
                     }
                     AndroidKeyEvent.KEYCODE_MENU -> { if (down) { trackType = C.TRACK_TYPE_AUDIO }; return@onPreviewKeyEvent true }
                 }
+                // The live info bar only has a row of buttons, so up/down keep zapping channels while it's open.
+                if (overlay == Overlay.CONTROLS && trackType == null && vm.isLive &&
+                    (code == AndroidKeyEvent.KEYCODE_DPAD_UP || code == AndroidKeyEvent.KEYCODE_DPAD_DOWN)
+                ) {
+                    if (down) vm.changeChannel(if (code == AndroidKeyEvent.KEYCODE_DPAD_UP) +1 else -1)
+                    return@onPreviewKeyEvent true
+                }
                 if (overlay != Overlay.NONE || trackType != null) return@onPreviewKeyEvent false
                 // Nothing on screen: the D-pad drives playback directly.
                 when (code) {
@@ -223,7 +237,7 @@ private fun PlayerContent(vm: PlayerViewModel, onExit: () -> Unit) {
 
         AnimatedVisibility(overlay == Overlay.CONTROLS, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             if (vm.isLive) {
-                LiveInfoOverlay(vm, onTracks = { trackType = it })
+                LiveInfoOverlay(vm, onTracks = { trackType = it }, onCatchUp = onCatchUp)
             } else {
                 VodControls(vm, seekFocus, onTracks = { trackType = it })
             }
@@ -281,6 +295,7 @@ private fun VodControls(vm: PlayerViewModel, seekFocus: FocusRequester, onTracks
                 OverlayButton("+10s", { vm.seekBy(SEEK_STEP_MS) })
                 OverlayButton("Audio", { onTracks(C.TRACK_TYPE_AUDIO) })
                 OverlayButton("Subtitles", { onTracks(C.TRACK_TYPE_TEXT) })
+                if (vm.canGoLive) OverlayButton("● Go live", vm::goLive)
                 vm.nextEpisode?.let { next ->
                     OverlayButton("Next: S${next.season}E${next.episode}", { vm.playEpisode(next) })
                 }
@@ -328,8 +343,10 @@ private fun SeekBar(vm: PlayerViewModel, focus: FocusRequester) {
 }
 
 @Composable
-private fun LiveInfoOverlay(vm: PlayerViewModel, onTracks: (Int) -> Unit) {
+private fun LiveInfoOverlay(vm: PlayerViewModel, onTracks: (Int) -> Unit, onCatchUp: () -> Unit) {
     val p = vm.current
+    val firstButton = remember { FocusRequester() }
+    LaunchedEffect(Unit) { firstButton.tryRequestFocus() }
     val now = System.currentTimeMillis()
     val current = vm.epg.firstOrNull { it.startMs <= now && it.endMs > now }
     val next = vm.epg.firstOrNull { it.startMs >= (current?.endMs ?: now) && it !== current }
@@ -354,15 +371,22 @@ private fun LiveInfoOverlay(vm: PlayerViewModel, onTracks: (Int) -> Unit) {
                 }
                 EpgLine("Now", current, now)
                 EpgLine("Next", next, null)
-                Text(
-                    "▲▼ change channel  ◀ channel list  MENU audio",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AppColors.Muted,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OverlayButton("Audio", { onTracks(C.TRACK_TYPE_AUDIO) })
-                OverlayButton("Subtitles", { onTracks(C.TRACK_TYPE_TEXT) })
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    // Whichever button comes first takes focus when the bar opens.
+                    var focusTaken = false
+                    fun first(): Modifier = if (focusTaken) Modifier else Modifier.focusRequester(firstButton).also { focusTaken = true }
+                    if (vm.startOverProgramme != null) OverlayButton("⟲ Start over", vm::startOver, first())
+                    if (p.archiveStreamId != null) OverlayButton("Catch-up", onCatchUp, first())
+                    if (vm.hasQualityChoice) OverlayButton("Quality: ${p.quality ?: "Auto"}", vm::cycleQuality, first())
+                    OverlayButton("Audio", { onTracks(C.TRACK_TYPE_AUDIO) }, first())
+                    OverlayButton("Subtitles", { onTracks(C.TRACK_TYPE_TEXT) })
+                    Spacer(Modifier.width(12.dp))
+                    Text("▲▼ channel   ◀ channel list", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted)
+                }
             }
         }
     }

@@ -35,7 +35,9 @@ import androidx.tv.material3.TabRow
 import androidx.tv.material3.Text
 import com.shizington.tv.ui.browse.BrowseMode
 import com.shizington.tv.ui.browse.BrowseScreen
+import com.shizington.tv.ui.components.appContainer
 import com.shizington.tv.ui.components.tryRequestFocus
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shizington.tv.ui.favourites.FavouritesScreen
 import com.shizington.tv.ui.live.LiveScreen
 import com.shizington.tv.ui.navigation.AppNavigator
@@ -56,6 +58,7 @@ fun MainScreen(navigator: AppNavigator) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     val tabRequesters = remember { List(tabs.size) { FocusRequester() } }
     var anythingFocused by remember { mutableStateOf(false) }
+    val account by appContainer().xtream.account.collectAsStateWithLifecycle()
 
     BackHandler(enabled = selected != 0) {
         selected = 0
@@ -108,6 +111,20 @@ fun MainScreen(navigator: AppNavigator) {
                         Text(tab.title, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                     }
                 }
+            }
+            Spacer(Modifier.weight(1f))
+            // Warn a week ahead so the subscription doesn't lapse mid-film.
+            val daysLeft = account?.daysLeft()
+            if (daysLeft != null && daysLeft <= 7) {
+                Text(
+                    when (daysLeft) {
+                        0L -> "Expires today"
+                        1L -> "Expires tomorrow"
+                        else -> "Expires in $daysLeft days"
+                    },
+                    color = AppColors.Rating,
+                    fontSize = 13.sp,
+                )
             }
         }
     }

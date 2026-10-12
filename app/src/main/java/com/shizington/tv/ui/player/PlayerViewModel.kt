@@ -20,6 +20,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -51,7 +52,12 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
     var index by mutableIntStateOf(request.index.coerceIn(0, (request.items.size - 1).coerceAtLeast(0)))
         private set
     val current: Playable get() = queue[index]
-    val isLive: Boolean get() = current.type == ContentType.LIVE
+    /** Catch-up recordings come from a live channel but play like a film (seekable, with an end). */
+    val isLive: Boolean get() = current.type == ContentType.LIVE && !current.isCatchUp
+
+    /** The live channel to return to after "Start over". */
+    private var liveOrigin: Playable? = null
+    val canGoLive: Boolean get() = current.isCatchUp && liveOrigin != null
     val hasQueue: Boolean get() = queue.size > 1
 
     var isPlaying by mutableStateOf(false)
@@ -72,6 +78,9 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
         private set
 
     private var retries = 0
+
+    /** Whether the current stream has shown any video; decoder errors after that are glitches, not unsupported formats. */
+    private var renderedFirstFrame = false
     private var epgJob: Job? = null
 
     init {
@@ -89,6 +98,8 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
             }
 
             override fun onTracksChanged(tracks: Tracks) { tracksVersion++ }
+
+            override fun onRenderedFirstFrame() { renderedFirstFrame = true }
 
             override fun onPlayerError(e: PlaybackException) = handleError(e)
         })
@@ -123,6 +134,7 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
     }
 
     private fun play(p: Playable, startMs: Long) {
+        renderedFirstFrame = false
         error = null
         epg = emptyList()
         nextEpisode = null
@@ -137,9 +149,11 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
         player.setMediaItem(item, startMs)
         player.prepare()
         player.play()
-        if (p.type == ContentType.LIVE) {
+        if (p.type == ContentType.LIVE && !p.isCatchUp) {
             c.lastPlayedLiveId = p.id
             loadEpg(p)
+        } else {
+            epgJob?.cancel()
         }
         if (p.type == ContentType.EPISODE) findNextEpisode(p)
     }
@@ -183,13 +197,57 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
         }
     }
 
+    // ---- Live extras: quality, start over, catch-up ----
+
+    val hasQualityChoice: Boolean get() = isLive && current.variants.size > 1
+
+    /** Cycles through the channel's other qualities (FHD → HD → SD → FHD). */
+    fun cycleQuality() {
+        val variants = current.variants
+        if (variants.size < 2) return
+        val next = variants[(variants.indexOfFirst { it.id == current.id } + 1) % variants.size]
+        queue[index] = current.copy(id = next.id, quality = next.quality, icon = next.icon ?: current.icon)
+        retries = 0
+        play(current, 0)
+    }
+
+    /** The programme on air now, if the channel records it, so it can be restarted. */
+    val startOverProgramme: EpgEntry?
+        get() {
+            if (!isLive || current.archiveStreamId == null) return null
+            val now = System.currentTimeMillis()
+            return epg.firstOrNull { it.startMs <= now && it.endMs > now }
+        }
+
+    fun startOver() {
+        val programme = startOverProgramme ?: return
+        val live = current
+        liveOrigin = live
+        queue[index] = live.copy(
+            id = live.archiveStreamId ?: live.id,
+            archiveStartMs = programme.startMs,
+            archiveMinutes = programme.durationMinutes,
+            programme = programme.title,
+        )
+        retries = 0
+        play(current, 0)
+    }
+
+    fun goLive() {
+        val live = liveOrigin ?: return
+        liveOrigin = null
+        queue[index] = live
+        retries = 0
+        play(current, 0)
+    }
+
     private fun handleError(e: PlaybackException) {
         if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
             player.seekToDefaultPosition()
             player.prepare()
             return
         }
-        if (e.errorCode in DECODER_ERRORS) {
+        if (e.errorCode in DECODER_ERRORS && !renderedFirstFrame) {
             // Retrying can't help: this device has no decoder for the stream's format (often HEVC on older hardware).
             error = "This video's format isn't supported on this device"
             return
@@ -204,7 +262,22 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
                 player.prepare()
             }
         } else {
-            error = "Playback failed: ${e.errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()}"
+            error = describe(e)
+        }
+    }
+
+    /** Turns the provider's HTTP refusals into something a viewer can act on. */
+    private fun describe(e: PlaybackException): String {
+        var cause: Throwable? = e
+        while (cause != null && cause !is HttpDataSource.InvalidResponseCodeException) cause = cause.cause
+        val code = (cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+        val max = c.xtream.account.value?.maxConnections
+        return when (code) {
+            401, 403, 405, 429, 456, 458, 509 ->
+                "The provider refused this stream. Your plan allows ${max ?: "a limited number of"} " +
+                    "connection${if (max == 1) "" else "s"} at a time. Stop playback on other devices and try again."
+            404 -> "This stream isn't available right now."
+            else -> "Playback failed: ${e.errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()}"
         }
     }
 

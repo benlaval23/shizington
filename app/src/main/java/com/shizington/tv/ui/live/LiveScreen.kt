@@ -1,5 +1,12 @@
 package com.shizington.tv.ui.live
 
+import android.view.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.shizington.tv.data.model.ChannelGroup
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -83,7 +90,7 @@ class LiveViewModel(private val c: AppContainer) : ViewModel() {
         private set
     var selectedCategory by mutableStateOf<String?>(null)
         private set
-    var channels by mutableStateOf<ListState<List<Stream>>>(ListState.Loading)
+    var channels by mutableStateOf<ListState<List<ChannelGroup>>>(ListState.Loading)
         private set
     val epg = mutableStateMapOf<Long, List<EpgEntry>>()
     var now by mutableLongStateOf(System.currentTimeMillis())
@@ -142,32 +149,53 @@ class LiveViewModel(private val c: AppContainer) : ViewModel() {
         channels = ListState.Loading
         channelsJob = viewModelScope.launch {
             if (id == FAVOURITES_ID) {
-                favouriteChannels.collect { channels = ListState.Ready(it) }
+                favouriteChannels.collect { channels = ListState.Ready(ChannelGroup.group(it)) }
                 return@launch
             }
             channels = try {
-                ListState.Ready(if (id == ALL_ID) c.xtream.allStreams(ContentType.LIVE) else c.xtream.streams(ContentType.LIVE, id))
+                val streams = if (id == ALL_ID) c.xtream.allStreams(ContentType.LIVE) else c.xtream.streams(ContentType.LIVE, id)
+                ListState.Ready(withContext(Dispatchers.Default) { ChannelGroup.group(streams) })
             } catch (e: Exception) {
                 ListState.Failed(e.message ?: "Couldn't load channels")
             }
         }
     }
 
-    fun requestEpg(stream: Stream) {
+    fun requestEpg(group: ChannelGroup) = requestEpg(group.epgStream)
+
+    private fun requestEpg(stream: Stream) {
         val current = epg[stream.id]
         if (current != null && (current.firstOrNull()?.endMs ?: Long.MAX_VALUE) > System.currentTimeMillis()) return
         c.xtream.cachedEpg(stream.id)?.let { epg[stream.id] = it }
         viewModelScope.launch { epg[stream.id] = c.xtream.shortEpg(stream.id) }
     }
 
-    fun toggleFavourite(stream: Stream) {
-        viewModelScope.launch { c.library.setFavourite(stream, stream.id !in favouriteIds.value) }
+    fun isFavourite(group: ChannelGroup, ids: Set<Long>) = group.variants.any { it.id in ids }
+
+    /** Favouriting a channel stores the variant you'd play; unfavouriting clears every variant. */
+    fun toggleFavourite(group: ChannelGroup) {
+        viewModelScope.launch {
+            val existing = group.variants.filter { it.id in favouriteIds.value }
+            if (existing.isEmpty()) c.library.setFavourite(group.preferred(c.credentialsStore.preferredQuality), true)
+            else existing.forEach { c.library.setFavourite(it, false) }
+        }
     }
 
-    fun play(channels: List<Stream>, index: Int, navigator: AppNavigator) {
+    fun play(channels: List<ChannelGroup>, index: Int, navigator: AppNavigator) {
         pendingRestore = true
-        c.lastPlayedLiveId = channels[index].id
-        navigator.play(PlaybackRequest(channels.map { it.toPlayable() }, index))
+        val quality = c.credentialsStore.preferredQuality
+        val queue = channels.map { it.toPlayable(quality) }
+        c.lastPlayedLiveId = queue[index].id
+        navigator.play(PlaybackRequest(queue, index))
+    }
+
+    fun openCatchUp(group: ChannelGroup, navigator: AppNavigator) {
+        if (group.archiveDays <= 0) return
+        pendingRestore = true
+        val stream = group.variants.firstOrNull { it.archiveDays > 0 && it.epgChannelId != null }
+            ?: group.variants.first { it.archiveDays > 0 }
+        c.lastPlayedLiveId = stream.id
+        navigator.openCatchUp(stream.id, group.name, group.icon)
     }
 
     fun beginRestore() {
@@ -256,19 +284,27 @@ private fun CategoryList(categories: List<Category>, selected: String?, onFocuse
 
 @Composable
 private fun GridHeader() {
-    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 4.dp)) {
-        Text("CHANNEL", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted, modifier = Modifier.width(300.dp))
-        Text("NOW", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted, modifier = Modifier.weight(1.2f))
-        Text("NEXT", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted, modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 6.dp, top = 4.dp)) {
+        Text(
+            "Hold OK to favourite  ·  Press ≡ Menu for catch-up",
+            style = MaterialTheme.typography.labelSmall,
+            color = AppColors.Muted,
+            modifier = Modifier.align(Alignment.End).padding(bottom = 4.dp),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            Text("CHANNEL", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted, modifier = Modifier.width(300.dp))
+            Text("NOW", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted, modifier = Modifier.weight(1.2f))
+            Text("NEXT", style = MaterialTheme.typography.labelSmall, color = AppColors.Muted, modifier = Modifier.weight(1f))
+        }
     }
 }
 
 @Composable
-private fun ChannelGrid(channels: List<Stream>, vm: LiveViewModel, favouriteIds: Set<Long>, navigator: AppNavigator) {
+private fun ChannelGrid(channels: List<ChannelGroup>, vm: LiveViewModel, favouriteIds: Set<Long>, navigator: AppNavigator) {
     val state = rememberLazyListState()
     val restoreId = vm.restoreChannelId
     LaunchedEffect(restoreId, channels) {
-        val idx = channels.indexOfFirst { it.id == restoreId }
+        val idx = channels.indexOfFirst { restoreId != null && restoreId in it.ids }
         if (idx >= 0) state.scrollToItem((idx - 2).coerceAtLeast(0))
     }
     CompositionLocalProvider(LocalBringIntoViewSpec provides rememberPivotSpec(150.dp)) {
@@ -278,17 +314,18 @@ private fun ChannelGrid(channels: List<Stream>, vm: LiveViewModel, favouriteIds:
             contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            itemsIndexed(channels, key = { _, s -> s.id }) { index, stream ->
-                LaunchedEffect(stream.id) { vm.requestEpg(stream) }
+            itemsIndexed(channels, key = { _, g -> g.key }) { index, group ->
+                LaunchedEffect(group.key) { vm.requestEpg(group) }
                 val requester = remember { FocusRequester() }
-                if (restoreId == stream.id) LaunchedEffect(Unit) { requester.tryRequestFocus(); vm.focusRestored() }
+                if (restoreId != null && restoreId in group.ids) LaunchedEffect(Unit) { requester.tryRequestFocus(); vm.focusRestored() }
                 ChannelRow(
-                    stream = stream,
-                    epg = vm.epg[stream.id],
+                    group = group,
+                    epg = vm.epg[group.epgStream.id],
                     now = vm.now,
-                    favourite = stream.id in favouriteIds,
+                    favourite = vm.isFavourite(group, favouriteIds),
                     onClick = { vm.play(channels, index, navigator) },
-                    onLongClick = { vm.toggleFavourite(stream) },
+                    onLongClick = { vm.toggleFavourite(group) },
+                    onMenu = { vm.openCatchUp(group, navigator) },
                     modifier = Modifier.focusRequester(requester),
                 )
             }
@@ -298,12 +335,13 @@ private fun ChannelGrid(channels: List<Stream>, vm: LiveViewModel, favouriteIds:
 
 @Composable
 private fun ChannelRow(
-    stream: Stream,
+    group: ChannelGroup,
     epg: List<EpgEntry>?,
     now: Long,
     favourite: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -314,7 +352,17 @@ private fun ChannelRow(
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth().height(62.dp).onFocusChanged { focused = it.isFocused },
+        modifier = modifier
+            .fillMaxWidth()
+            .height(62.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { e ->
+                // Menu opens catch-up; OK and long-press OK are taken by play and favourite.
+                if (e.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU && group.archiveDays > 0) {
+                    if (e.type == KeyEventType.KeyUp) onMenu()
+                    true
+                } else false
+            },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = AppColors.Surface,
@@ -327,22 +375,30 @@ private fun ChannelRow(
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.width(300.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(stream.num?.toString() ?: "", style = MaterialTheme.typography.labelLarge, color = muted, modifier = Modifier.width(44.dp))
+                Text(group.num?.toString() ?: "", style = MaterialTheme.typography.labelLarge, color = muted, modifier = Modifier.width(44.dp))
                 RemoteImage(
-                    stream.icon,
-                    stream.name.take(3),
+                    group.icon,
+                    group.name.substringAfter(": ").take(3),
                     Modifier.size(width = 64.dp, height = 40.dp).background(Color.Black.copy(alpha = 0.25f), RoundedCornerShape(4.dp)).padding(3.dp),
                     contentScale = ContentScale.Fit,
                     fallbackBackground = Color.Transparent,
                 )
                 Spacer(Modifier.width(12.dp))
-                Text(
-                    (if (favourite) "★ " else "") + stream.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                )
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        (if (favourite) "★ " else "") + group.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val tags = listOfNotNull(
+                        group.qualities.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+                        if (group.archiveDays > 0) "⟲ ${group.archiveDays}-day catch-up" else null,
+                    )
+                    if (tags.isNotEmpty()) {
+                        Text(tags.joinToString("   "), style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
+                    }
+                }
             }
             Column(Modifier.weight(1.2f).padding(end = 16.dp)) {
                 if (current != null) {

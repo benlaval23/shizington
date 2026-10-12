@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +60,8 @@ fun MetaRow(items: List<String>) {
 }
 
 enum class ActionIcon(val vector: ImageVector) {
-    Play(Icons.Filled.PlayArrow), Restart(Icons.Filled.Refresh), Favourite(Icons.Filled.Favorite), NotFavourite(Icons.Filled.FavoriteBorder)
+    Play(Icons.Filled.PlayArrow), Restart(Icons.Filled.Refresh), Favourite(Icons.Filled.Favorite), NotFavourite(Icons.Filled.FavoriteBorder),
+    Trailer(Icons.Outlined.PlayArrow)
 }
 
 @Composable

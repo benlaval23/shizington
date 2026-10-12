@@ -61,7 +61,20 @@ import kotlinx.coroutines.launch
 
 enum class BrowseMode { HOME, MOVIES, SERIES }
 
-data class RowSpec(val key: String, val title: String, val type: ContentType, val categoryId: String)
+/** Rows built from the whole catalogue rather than a provider category. */
+sealed interface Curated {
+    data object Recent : Curated
+    data object TopRated : Curated
+    data class Genre(val name: String) : Curated
+}
+
+data class RowSpec(
+    val key: String,
+    val title: String,
+    val type: ContentType,
+    val categoryId: String? = null,
+    val curated: Curated? = null,
+)
 
 sealed interface ListState<out T> {
     data object Loading : ListState<Nothing>
@@ -108,11 +121,40 @@ class BrowseViewModel(private val mode: BrowseMode, private val c: AppContainer)
                 val movieRows = m?.getOrNull().orEmpty().map { it.toRow(ContentType.MOVIE, "Movies") }
                 val seriesRows = s?.getOrNull().orEmpty().map { it.toRow(ContentType.SERIES, "Series") }
                 if (movieRows.isEmpty() && seriesRows.isEmpty() && failure != null) throw failure
-                ListState.Ready(if (mode == BrowseMode.HOME) interleave(movieRows, seriesRows) else movieRows + seriesRows)
+                val categoryRows = if (mode == BrowseMode.HOME) interleave(movieRows, seriesRows) else movieRows + seriesRows
+                ListState.Ready(curatedRows() + categoryRows)
             } catch (e: Exception) {
                 ListState.Failed(e.message ?: "Couldn't load the catalogue")
             }
+            if (mode != BrowseMode.HOME) addGenreRows()
         }
+    }
+
+    private fun curatedRows(): List<RowSpec> = when (mode) {
+        BrowseMode.HOME -> listOf(
+            RowSpec("new_movies", "New movies", ContentType.MOVIE, curated = Curated.Recent),
+            RowSpec("new_episodes", "New episodes", ContentType.SERIES, curated = Curated.Recent),
+            RowSpec("top_movies", "Highly rated movies", ContentType.MOVIE, curated = Curated.TopRated),
+            RowSpec("top_series", "Highly rated series", ContentType.SERIES, curated = Curated.TopRated),
+        )
+        BrowseMode.MOVIES -> listOf(
+            RowSpec("new_movies", "Recently added", ContentType.MOVIE, curated = Curated.Recent),
+            RowSpec("top_movies", "Highly rated", ContentType.MOVIE, curated = Curated.TopRated),
+        )
+        BrowseMode.SERIES -> listOf(
+            RowSpec("new_episodes", "New episodes", ContentType.SERIES, curated = Curated.Recent),
+            RowSpec("top_series", "Highly rated", ContentType.SERIES, curated = Curated.TopRated),
+        )
+    }
+
+    /** Genre rows need the full catalogue, so they slot in under the curated rows once it has loaded. */
+    private suspend fun addGenreRows() {
+        val type = if (mode == BrowseMode.SERIES) ContentType.SERIES else ContentType.MOVIE
+        val genres = runCatching { c.xtream.topGenres(type, 10) }.getOrNull() ?: return
+        val current = (rows as? ListState.Ready)?.value ?: return
+        val genreRows = genres.map { RowSpec("genre_${type.name}_$it", it, type, curated = Curated.Genre(it)) }
+        val insertAt = current.indexOfLast { it.curated != null } + 1
+        rows = ListState.Ready(current.take(insertAt) + genreRows + current.drop(insertAt))
     }
 
     private fun Category.toRow(type: ContentType, prefix: String) = RowSpec(
@@ -137,7 +179,12 @@ class BrowseViewModel(private val mode: BrowseMode, private val c: AppContainer)
         rowContent[spec.key] = RowContent.Loading
         viewModelScope.launch {
             rowContent[spec.key] = try {
-                val items = c.xtream.streams(spec.type, spec.categoryId)
+                val items = when (val curated = spec.curated) {
+                    null -> c.xtream.streams(spec.type, spec.categoryId.orEmpty())
+                    Curated.Recent -> c.xtream.recentlyAdded(spec.type)
+                    Curated.TopRated -> c.xtream.topRated(spec.type)
+                    is Curated.Genre -> c.xtream.byGenre(spec.type, curated.name)
+                }
                 if (hero == null) items.firstOrNull()?.let { showHero(it) }
                 RowContent.Ready(items)
             } catch (e: Exception) {
