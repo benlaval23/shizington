@@ -60,6 +60,11 @@ class ShizingtonApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // The household, provider and fixtures are all in the UK, but Fire TVs often ship with a US time zone
+        // (this one was on America/Vancouver), which put kick-offs and the guide 8 hours out. Show UK time and
+        // UK-style dates regardless of how the device is set up.
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Europe/London"))
+        java.util.Locale.setDefault(java.util.Locale.UK)
         container = AppContainer(this)
     }
 

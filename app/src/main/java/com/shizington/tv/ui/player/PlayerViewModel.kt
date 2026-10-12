@@ -143,6 +143,9 @@ class PlayerViewModel(private val app: Application, private val c: AppContainer,
             override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean) =
                 super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)?.let { AudioSyncSink(it).also { s -> syncSink = s } }
         }.setEnableDecoderFallback(true)
+            // The stick has no Dolby/DTS decoder and many TVs refuse Dolby over HDMI, which left those films silent.
+            // With extensions on, FFmpeg decodes whatever the built-in decoders and HDMI passthrough can't.
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         val loadControl = DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 2_000, 4_000).build()
         return ExoPlayer.Builder(app, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource, extractors))

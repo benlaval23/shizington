@@ -116,6 +116,8 @@ dependencies {
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
+    // Software decoding for Dolby (AC3/E-AC3), DTS and other audio the Fire TV Stick has no decoder for.
+    implementation(libs.media3.ffmpeg.decoder)
 
     implementation(libs.retrofit)
     implementation(libs.okhttp)
